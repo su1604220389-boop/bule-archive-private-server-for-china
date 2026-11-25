@@ -1,0 +1,23 @@
+{
+  "v2_layoutonly": {
+    "changed": [
+      "META-INF/CERT.RSA",
+      "META-INF/CERT.SF",
+      "META-INF/MANIFEST.MF",
+      "res/Q9.xml"
+    ],
+    "only_old": [],
+    "only_new": []
+  },
+  "v3_dexpatch": {
+    "changed": [
+      "META-INF/CERT.RSA",
+      "META-INF/CERT.SF",
+      "META-INF/MANIFEST.MF",
+      "classes.dex",
+      "res/Q9.xml"
+    ],
+    "only_old": [],
+    "only_new": []
+  }
+}

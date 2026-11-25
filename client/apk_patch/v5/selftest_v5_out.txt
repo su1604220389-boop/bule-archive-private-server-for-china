@@ -1,0 +1,94 @@
+# SELF-TEST v5_login.apk
+
+* v5 (本次) : `C:\Users\su\Desktop\大肥鱼项目\BAServer\work\ba\apk_patch\out\v5_login.apk`
+* v4 (基线) : `C:\Users\su\Desktop\大肥鱼项目\BAServer\work\ba\apk_patch\out\v4_login.apk`
+* v1 (原包) : `C:\Users\su\Desktop\大肥鱼项目\BAServer\work\ba\apk_patch\backup\BA_noroot_prod_20261118_v1.apk`
+* 布局源   : `C:\Users\su\Desktop\大肥鱼项目\BAServer\work\ba\apk_patch\v5\res_Q9_v5.axml`
+
+## 0) 包体 SHA-256 / 字节数
+
+* v1     2,127,971,177 B  sha256 = `5f8b79dd930b8d1420b5b686cbc978142b751eea47c4b090ba308482a0f2f5c6`
+* v4     2,127,972,093 B  sha256 = `6490fcfc772f4dc6dd1773e7999a491775a646b08675591204b18212ee94eddb`
+* v5     2,127,972,945 B  sha256 = `7ae11fd0bb31108dabf616662eb8f5314002b9882e29188007c25bced0303db7`
+
+* v5 体积 = v4 2,127,972,093 B -> v5 2,127,972,945 B  (Δ +852 B)
+
+## 1) `resources.arsc` / `classes.dex` / `classes2.dex` / `AndroidManifest.xml`
+
+| entry | v1 sha256 | v4 sha256 | v5 sha256 | v1==v4==v5 |
+|---|---|---|---|---|
+| `resources.arsc` | `cd8943ae979fd434…` (1156308 B) | `cd8943ae979fd434…` (1156308 B) | `cd8943ae979fd434…` (1156308 B) | ✅ |
+| `classes.dex` | `56b3a73b3039db99…` (9327708 B) | `56b3a73b3039db99…` (9327708 B) | `56b3a73b3039db99…` (9327708 B) | ✅ |
+| `classes2.dex` | `dca6f88a614fd766…` (10158904 B) | `dca6f88a614fd766…` (10158904 B) | `dca6f88a614fd766…` (10158904 B) | ✅ |
+| `AndroidManifest.xml` | `9a07ec83802b9b6f…` (50552 B) | `9a07ec83802b9b6f…` (50552 B) | `9a07ec83802b9b6f…` (50552 B) | ✅ |
+| `res/Q9.xml` | `cc12543bbb5b977e…` (7292 B) | `f614865a97955515…` (8208 B) | `e8096feacfdc5411…` (9060 B) | ❌ |
+
+* v5 `resources.arsc` sha256 = `cd8943ae979fd434a6c1fee67e8129bba1bc4a452e1937d7d7e6052079eecb86`
+* 规范常量                  = `cd8943ae979fd434a6c1fee67e8129bba1bc4a452e1937d7d7e6052079eecb86`
+* => **一致 ✅**
+
+* `classes.dex` sha256 = `56b3a73b3039db99ade67faf42e471c8de4dcd7127ce9bef49d9f4d473c27651`
+  * 与常量 `56b3a73b3039db99…` : 一致 ✅
+* `classes2.dex` sha256 = `dca6f88a614fd7666842eed9d11d3f6bf9c842e381b80a63a330cbb78c93a7b4`
+  * 与常量 `dca6f88a614fd766…` : 一致 ✅
+* `AndroidManifest.xml` sha256 = `9a07ec83802b9b6fc08582b9429d9649775fe8627c35be419a3b851f1ffaca11`
+  * 与常量 `9a07ec83802b9b6f…` : 一致 ✅
+
+## 2) `aapt dump badging` —— v5 vs v4，diff 行数
+
+* aapt dump badging v4 -> exit 0, 176 行, 存 `badging_v4.txt`
+* aapt dump badging v5 -> exit 0, 176 行, 存 `badging_v5.txt`
+* diff 行数 = **0**  ✅
+
+## 3) zip 条目 diff（v5 vs v4）
+
+* v4 条目数 = 41307, v5 条目数 = 41307
+* only in v4 : []
+* only in v5 : []
+* 内容有差异的条目 (4) :
+    * `META-INF/CERT.RSA`: 1208 B (csize 1208, crc 1695B469) -> 1208 B (csize 1208, crc DFABF9FF)
+    * `META-INF/CERT.SF`: 156 B (csize 156, crc 0F1F824B) -> 156 B (csize 156, crc 33751D4E)
+    * `META-INF/MANIFEST.MF`: 5151246 B (csize 5151246, crc 66FC9768) -> 5151246 B (csize 5151246, crc A2A65A5E)
+    * `res/Q9.xml`: 8208 B (csize 8208, crc 05500E69) -> 9060 B (csize 9060, crc AFFDF261)
+* 只允许 `res/Q9.xml` + `META-INF/*` 变化 -> ✅
+* v5 内 `res/Q9.xml` : 9060 B, sha256 = `e8096feacfdc5411c4ed65fce2bd75188ecd8dbb6db4dd92d48f551e52437918`（磁盘上的 res_Q9_v5.axml sha256 = `e8096feacfdc5411c4ed65fce2bd75188ecd8dbb6db4dd92d48f551e52437918`）
+
+## 4) `apksigner verify --verbose --print-certs`
+
+### v4_login.apk  -> exit 0
+
+```
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v4 scheme (APK Signature Scheme v4): false
+Number of signers: 1
+Signer #1 certificate DN: CN=ba, OU=Private, O=BA, C=CN
+Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc
+Signer #1 certificate SHA-1 digest: b584e21cd77a635cc42e8ac5bed4b992e3610037
+Signer #1 certificate MD5 digest: 1ce17d9b7b789a1d7c69297f3fa74ed5
+```
+
+### v5_login.apk  -> exit 0
+
+```
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v4 scheme (APK Signature Scheme v4): false
+Number of signers: 1
+Signer #1 certificate DN: CN=ba, OU=Private, O=BA, C=CN
+Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc
+Signer #1 certificate SHA-1 digest: b584e21cd77a635cc42e8ac5bed4b992e3610037
+Signer #1 certificate MD5 digest: 1ce17d9b7b789a1d7c69297f3fa74ed5
+```
+
+* v5 证书 SHA-256 行 : `Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc`
+* v4 证书 SHA-256 行 : `Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc`
+* 与 v4 同一张证书 + 等于常量 94FA…EBC : ✅
+
+---
+
+**ALL CHECKS PASSED ✅**

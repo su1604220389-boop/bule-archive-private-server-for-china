@@ -1,0 +1,98 @@
+# ============================================================================
+#  BA MITM —— 按 Host 拆成三个独立 server（struct1，2026-11-14 01:50）
+#  根因依据：真实上游 state-api/api/state = 200/0B，gsqc-api/api/state = 200/214B(10 字段)
+#  证书锁定：ssl_certificate 必须永远指向 <CERT_PATH>（见 README_CA_LOCK.txt）
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# server 1: state-api / stateqc-api  → 200 + 空 body（与真实上游一致）
+# default_server 只留在这里
+# ---------------------------------------------------------------------------
+server {
+    listen 443 ssl default_server;
+    http2 on;
+    server_name state-api.bluearchive-cn.com stateqc-api.bluearchive-cn.com;
+
+    ssl_certificate     <CERT_PATH>;
+    ssl_certificate_key <CERT_PATH>;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 10m;
+
+    access_log /www/wwwlogs/ba_mitm.log;
+    access_log /www/wwwlogs/ba_raw.log ba_raw;
+    error_log  /www/wwwlogs/ba_mitm.error.log;
+
+    # 真实上游：HTTP 200，body 0 字节（7 次复测，POST 该路径 404，只有 GET）
+    location = /api/state {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        return 200;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        client_max_body_size 32m;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# server 2: gsqc-api / gs-api  → 200 + 真实 10 字段（Msg 必须为空）
+# ---------------------------------------------------------------------------
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name gsqc-api.bluearchive-cn.com gs-api.bluearchive-cn.com;
+
+    ssl_certificate     <CERT_PATH>;
+    ssl_certificate_key <CERT_PATH>;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 10m;
+
+    access_log /www/wwwlogs/ba_mitm.log;
+    access_log /www/wwwlogs/ba_raw.log ba_raw;
+    error_log  /www/wwwlogs/ba_mitm.error.log;
+
+    location = /api/state {
+        default_type "application/json; charset=utf-8";
+        add_header Cache-Control "no-store" always;
+        return 200 '{"CallbackUrl":"","CustomerServiceUrl":"","AddressablesCatalogUrlRoots":null,"ResourceVersion":"","TableVersion":"","MediaVersion":"","PatchVersion":"","State":0,"Msg":"","IsOpenPreDownload":false}';
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        client_max_body_size 32m;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# server 3: static  → 先保持 404，但必须留日志（要看客户端请求的路径与顺序）
+# ---------------------------------------------------------------------------
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name static.bluearchive-cn.com;
+
+    ssl_certificate     <CERT_PATH>;
+    ssl_certificate_key <CERT_PATH>;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 10m;
+
+    access_log /www/wwwlogs/ba_static.log ba_raw;
+    error_log  /www/wwwlogs/ba_mitm.error.log;
+
+    location / {
+        return 404;
+    }
+}

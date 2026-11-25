@@ -1,0 +1,267 @@
+# AXML /mnt/c/Users/su/Desktop/大肥鱼项目/BAServer/work/ba/apk_patch/v2v3/res_Q9_orig.axml
+# size=7292 strings=53 utf8=True resmap=41 chunks=60 sha256=cc12543bbb5b977ebc229dfae334d9f10f9514b02f71b25d8e61b72d9a043dfd
+NS android -> http://schemas.android.com/apk/res/android
+NS app -> http://schemas.android.com/apk/res-auto
+E: LinearLayout
+  A: http://schemas.android.com/apk/res/android:gravity(0x010100af) 0x00000001 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:layout_gravity(0x010100b3) 0x00000011 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:orientation(0x010100c4) 1 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f0700b2 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingBottom(0x010100d9) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f060136 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+E: LinearLayout
+  A: http://schemas.android.com/apk/res/android:gravity(0x010100af) 0x00000010 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:paddingLeft(0x010100d6) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingTop(0x010100d7) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingRight(0x010100d8) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingBottom(0x010100d9) @0x7f06016c [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+E: ImageView
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f08015d [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f070069 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f060103 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060103 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:scaleType(0x0101011d) 6 [INT_DEC]
+/E: ImageView
+E: LinearLayout
+  A: http://schemas.android.com/apk/res/android:gravity(0x010100af) 0x00000011 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:orientation(0x010100c4) 1 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 0dip [DIMENSION]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_weight(0x01010181) 1.0 [FLOAT]
+E: View
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060144 [REFERENCE]
+/E: View
+E: ImageView
+  A: http://schemas.android.com/apk/res/android:layout_gravity(0x010100b3) 0x00000001 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f080164 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f070092 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f0600aa [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060122 [REFERENCE]
+/E: ImageView
+/E: LinearLayout
+E: ImageView
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f08015e [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f07007a [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f060103 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060103 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:scaleType(0x0101011d) 6 [INT_DEC]
+/E: ImageView
+/E: LinearLayout
+E: TextView
+  A: http://schemas.android.com/apk/res/android:textSize(0x01010095) @0x7f06029c [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColor(0x01010098) @0x7f05003d [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:gravity(0x010100af) 0x00000011 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f0802bc [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:visibility(0x010100dc) 2 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_marginLeft(0x010100f7) @0x7f060133 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_marginRight(0x010100f9) @0x7f060133 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:text(0x0101014f) @0x7f0f0038 [REFERENCE]
+/E: TextView
+E: androidx.constraintlayout.widget.ConstraintLayout
+  A: http://schemas.android.com/apk/res/android:paddingLeft(0x010100d6) @0x7f060103 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingRight(0x010100d8) @0x7f060103 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_marginTop(0x010100f8) @0x7f06016c [REFERENCE]
+E: com.airi.official.core.widget.ExtendEditText
+  A: http://schemas.android.com/apk/res/android:textSize(0x01010095) @0x7f06029e [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColor(0x01010098) @0x7f05002d [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColorHint(0x0101009a) @0x7f050091 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f080108 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f0700b7 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060145 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:hint(0x01010150) @0x7f0f0074 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:singleLine(0x0101015d) true [INT_BOOLEAN]
+  A: http://schemas.android.com/apk/res/android:maxLength(0x01010160) 11 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:inputType(0x01010220) 0x00000003 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:imeOptions(0x01010264) 0x10000006 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:paddingStart(0x010103b3) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingEnd(0x010103b4) @0x7f060090 [REFERENCE]
+  A: http://schemas.android.com/apk/res-auto:clearButtonMode(0x7f0300be) 2 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintLeft_toLeftOf(0x7f03021a) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintRight_toRightOf(0x7f03021e) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toTopOf(0x7f030224) 0 [INT_DEC]
+/E: com.airi.official.core.widget.ExtendEditText
+E: androidx.constraintlayout.widget.ConstraintLayout
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f08016f [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f0700b7 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060145 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_marginTop(0x010100f8) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintLeft_toLeftOf(0x7f03021a) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintRight_toRightOf(0x7f03021e) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toBottomOf(0x7f030223) @0x7f080108 [REFERENCE]
+E: com.airi.official.core.widget.ExtendEditText
+  A: http://schemas.android.com/apk/res/android:textSize(0x01010095) @0x7f06029e [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColor(0x01010098) @0x7f05002d [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColorHint(0x0101009a) @0x7f050091 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f080109 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x00000000 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 0dip [DIMENSION]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060145 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:hint(0x01010150) @0x7f0f0073 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:singleLine(0x0101015d) true [INT_BOOLEAN]
+  A: http://schemas.android.com/apk/res/android:maxLength(0x01010160) 6 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:inputType(0x01010220) 0x00000002 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:imeOptions(0x01010264) 0x10000006 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:paddingStart(0x010103b3) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingEnd(0x010103b4) @0x7f060090 [REFERENCE]
+  A: http://schemas.android.com/apk/res-auto:clearButtonMode(0x7f0300be) 2 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintBottom_toBottomOf(0x7f030206) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintLeft_toLeftOf(0x7f03021a) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintRight_toLeftOf(0x7f03021d) @0x7f0800ec [REFERENCE]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toTopOf(0x7f030224) 0 [INT_DEC]
+/E: com.airi.official.core.widget.ExtendEditText
+E: TextView
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f0800ec [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f050092 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f060092 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f0600e9 [REFERENCE]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintBottom_toBottomOf(0x7f030206) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintRight_toLeftOf(0x7f03021d) @0x7f08012e [REFERENCE]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toTopOf(0x7f030224) 0 [INT_DEC]
+/E: TextView
+E: TextView
+  A: http://schemas.android.com/apk/res/android:textSize(0x01010095) @0x7f06029e [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColor(0x01010098) @0x7f050091 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:ellipsize(0x010100ab) 3 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:gravity(0x010100af) 0x00000011 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:layout_gravity(0x010100b3) 0x00000001 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f08012e [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f060162 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:text(0x0101014f) @0x7f0f006a [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:singleLine(0x0101015d) true [INT_BOOLEAN]
+  A: http://schemas.android.com/apk/res/android:includeFontPadding(0x0101015f) false [INT_BOOLEAN]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintBottom_toBottomOf(0x7f030206) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintRight_toRightOf(0x7f03021e) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toTopOf(0x7f030224) 0 [INT_DEC]
+/E: TextView
+/E: androidx.constraintlayout.widget.ConstraintLayout
+E: LinearLayout
+  A: http://schemas.android.com/apk/res/android:orientation(0x010100c4) 1 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f08017a [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintLeft_toLeftOf(0x7f03021a) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintRight_toRightOf(0x7f03021e) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toBottomOf(0x7f030223) @0x7f08016f [REFERENCE]
+E: Button
+  A: http://schemas.android.com/apk/res/android:textSize(0x01010095) @0x7f0602a0 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColor(0x01010098) @0x7f05002a [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f080182 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f0700b6 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060145 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_marginTop(0x010100f8) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:text(0x0101014f) @0x7f0f009f [REFERENCE]
+/E: Button
+E: View
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f080183 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:visibility(0x010100dc) 2 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f0600a9 [REFERENCE]
+/E: View
+/E: LinearLayout
+E: androidx.constraintlayout.widget.ConstraintLayout
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f08004e [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_marginTop(0x010100f8) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintLeft_toLeftOf(0x7f03021a) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintRight_toRightOf(0x7f03021e) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toBottomOf(0x7f030223) @0x7f08017a [REFERENCE]
+E: LinearLayout
+  A: http://schemas.android.com/apk/res/android:orientation(0x010100c4) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintEnd_toEndOf(0x7f03020c) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintStart_toStartOf(0x7f030220) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toTopOf(0x7f030224) 0 [INT_DEC]
+E: ImageView
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f080166 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f070087 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f0600bb [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f0600bb [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_marginTop(0x010100f8) @0x7f0600e8 [REFERENCE]
+/E: ImageView
+E: TextView
+  A: http://schemas.android.com/apk/res/android:textSize(0x01010095) @0x7f06029c [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColor(0x01010098) @0x7f05004a [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f0802ce [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_marginLeft(0x010100f7) @0x7f060161 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:text(0x0101014f) @0x7f0f0111 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textAlignment(0x010103b1) 4 [INT_DEC]
+/E: TextView
+/E: LinearLayout
+/E: androidx.constraintlayout.widget.ConstraintLayout
+E: FrameLayout
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f0802a7 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f060113 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_marginTop(0x010100f8) @0x7f0600bb [REFERENCE]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintLeft_toLeftOf(0x7f03021a) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintRight_toRightOf(0x7f03021e) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res-auto:layout_constraintTop_toBottomOf(0x7f030223) @0x7f08004e [REFERENCE]
+E: LinearLayout
+  A: http://schemas.android.com/apk/res/android:layout_gravity(0x010100b3) 0x00000011 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:orientation(0x010100c4) 0 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967295 [INT_DEC]
+E: LinearLayout
+  A: http://schemas.android.com/apk/res/android:gravity(0x010100af) 0x00000010 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f0801e1 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f0700b9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingLeft(0x010100d6) @0x7f0600dc [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingTop(0x010100d7) @0x7f060153 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingRight(0x010100d8) @0x7f0600dc [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:paddingBottom(0x010100d9) @0x7f060153 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967295 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_marginRight(0x010100f9) @0x7f060103 [REFERENCE]
+E: ImageView
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f0801fe [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f060177 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:src(0x01010119) @0x7f0700e2 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:scaleType(0x0101011d) 6 [INT_DEC]
+/E: ImageView
+E: TextView
+  A: http://schemas.android.com/apk/res/android:textSize(0x01010095) @0x7f06029c [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:textColor(0x01010098) @0x7f05002d [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:ellipsize(0x010100ab) 3 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967294 [INT_DEC]
+  A: http://schemas.android.com/apk/res/android:layout_marginLeft(0x010100f7) @0x7f060177 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:text(0x0101014f) @0x7f0f00ec [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:singleLine(0x0101015d) true [INT_BOOLEAN]
+/E: TextView
+/E: LinearLayout
+E: FrameLayout
+  A: http://schemas.android.com/apk/res/android:id(0x010100d0) @0x7f080290 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:background(0x010100d4) @0x7f0700f7 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f0600bc [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) 4294967295 [INT_DEC]
+E: ImageView
+  A: http://schemas.android.com/apk/res/android:layout_gravity(0x010100b3) 0x00000011 [INT_HEX]
+  A: http://schemas.android.com/apk/res/android:layout_width(0x010100f4) @0x7f060168 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:layout_height(0x010100f5) @0x7f0600a9 [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:src(0x01010119) @0x7f07009b [REFERENCE]
+  A: http://schemas.android.com/apk/res/android:scaleType(0x0101011d) 6 [INT_DEC]
+/E: ImageView
+/E: FrameLayout
+/E: LinearLayout
+/E: FrameLayout
+/E: androidx.constraintlayout.widget.ConstraintLayout
+/E: LinearLayout
+# NS_END
+# NS_END

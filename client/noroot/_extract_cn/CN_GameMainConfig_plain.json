@@ -1,0 +1,8 @@
+{
+  "SkipTutorial": "False",
+  "ServerInfoDataUrl": "[\"https://state-api.bluearchive-cn.com/api/state\",\"https://stateqc-api.bluearchive-cn.com/api/state\"]",
+  "ServerName": "prod",
+  "VersionCode": "73",
+  "PlatformID": "1",
+  "ChannelID": "1"
+}

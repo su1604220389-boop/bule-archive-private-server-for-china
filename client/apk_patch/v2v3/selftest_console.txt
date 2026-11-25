@@ -1,0 +1,168 @@
+# SELF-TEST  v2_layoutonly.apk / v3_dexpatch.apk
+
+baseline : /mnt/c/Users/su/Desktop/大肥鱼项目/BAServer/work/ba/apk_patch/backup/BA_noroot_prod_20261118_v1.apk
+v2       : /mnt/c/Users/su/Desktop/大肥鱼项目/BAServer/work/ba/apk_patch/out/v2_layoutonly.apk
+v3       : /mnt/c/Users/su/Desktop/大肥鱼项目/BAServer/work/ba/apk_patch/out/v3_dexpatch.apk
+
+## 5) package digest / size
+
+| file | bytes | sha256 |
+|---|---|---|
+| BA_noroot_prod_20261118_v1.apk | 2127971177 | `5f8b79dd930b8d1420b5b686cbc978142b751eea47c4b090ba308482a0f2f5c6` |
+| v2_layoutonly.apk | 2127972169 | `562d528a951eaeb15ae3165ece4a7ceb91849bb21ef54c895c6f217f9a676d64` |
+| v3_dexpatch.apk | 2133473392 | `6e5dcfb0317db175cec1be0719fad8271f6cae9abb5f3da84b571a36f6d2de25` |
+
+* baseline sha256 == spec `5f8b79dd930b8d1420b5b686cbc978142b751eea47c4b090ba308482a0f2f5c6` -> OK
+
+## 1) resources.arsc  (must be byte-identical to baseline)
+
+| entry | baseline | v2 | v3 |
+|---|---|---|---|
+| `resources.arsc` | `cd8943ae979fd434…` (1156308 B) | `cd8943ae979fd434…` (1156308 B) | `cd8943ae979fd434…` (1156308 B) |
+| `classes.dex` | `56b3a73b3039db99…` (9327708 B) | `56b3a73b3039db99…` (9327708 B) | `0ed8bbf878170c02…` (9327708 B) |
+| `classes2.dex` | `dca6f88a614fd766…` (10158904 B) | `dca6f88a614fd766…` (10158904 B) | `dca6f88a614fd766…` (10158904 B) |
+| `AndroidManifest.xml` | `9a07ec83802b9b6f…` (50552 B) | `9a07ec83802b9b6f…` (50552 B) | `9a07ec83802b9b6f…` (50552 B) |
+| `res/Q9.xml` | `cc12543bbb5b977e…` (7292 B) | `8907d9b258c918c0…` (8284 B) | `8907d9b258c918c0…` (8284 B) |
+
+* v2_layoutonly resources.arsc sha256 = `cd8943ae979fd434a6c1fee67e8129bba1bc4a452e1937d7d7e6052079eecb86`  -> OK
+* v3_dexpatch resources.arsc sha256 = `cd8943ae979fd434a6c1fee67e8129bba1bc4a452e1937d7d7e6052079eecb86`  -> OK
+* expected (spec)            = `cd8943ae979fd434a6c1fee67e8129bba1bc4a452e1937d7d7e6052079eecb86`
+
+* AndroidManifest.xml unchanged in both packages: True
+* classes2.dex unchanged in both packages: True
+* v2 classes.dex == baseline classes.dex: True
+* v3 classes.dex sha256 = `0ed8bbf878170c02d8d34dd9e974108b6268287b6d0dc897a8246a2634f141e2`
+
+## 4) apksigner verify --print-certs
+
+### BA_noroot_prod_20261118_v1.apk  -> exit 0
+```
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=ba, OU=Private, O=BA, C=CN
+Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc
+Signer #1 certificate SHA-1 digest: b584e21cd77a635cc42e8ac5bed4b992e3610037
+Signer #1 certificate MD5 digest: 1ce17d9b7b789a1d7c69297f3fa74ed5
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: 97e2558ab1a0336accfa4c0bb0262b6a04791bbe99dbd62a2dd863a93ce7403a
+Signer #1 public key SHA-1 digest: 4a2cf6efbca958df7aee6d4c15f8535cf8632267
+Signer #1 public key MD5 digest: 865841a0227e10f1c9e508cce738f326
+```
+
+### v2_layoutonly.apk  -> exit 0
+```
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=ba, OU=Private, O=BA, C=CN
+Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc
+Signer #1 certificate SHA-1 digest: b584e21cd77a635cc42e8ac5bed4b992e3610037
+Signer #1 certificate MD5 digest: 1ce17d9b7b789a1d7c69297f3fa74ed5
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: 97e2558ab1a0336accfa4c0bb0262b6a04791bbe99dbd62a2dd863a93ce7403a
+Signer #1 public key SHA-1 digest: 4a2cf6efbca958df7aee6d4c15f8535cf8632267
+Signer #1 public key MD5 digest: 865841a0227e10f1c9e508cce738f326
+```
+
+### v3_dexpatch.apk  -> exit 0
+```
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=ba, OU=Private, O=BA, C=CN
+Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc
+Signer #1 certificate SHA-1 digest: b584e21cd77a635cc42e8ac5bed4b992e3610037
+Signer #1 certificate MD5 digest: 1ce17d9b7b789a1d7c69297f3fa74ed5
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: 97e2558ab1a0336accfa4c0bb0262b6a04791bbe99dbd62a2dd863a93ce7403a
+Signer #1 public key SHA-1 digest: 4a2cf6efbca958df7aee6d4c15f8535cf8632267
+Signer #1 public key MD5 digest: 865841a0227e10f1c9e508cce738f326
+```
+
+## 2) aapt dump badging identity fields
+
+### baseline
+```
+package: name='com.RoamingStar.BlueArchive' versionCode='73' versionName='3.0.2' platformBuildVersionName='13' platformBuildVersionCode='33' compileSdkVersion='33' compileSdkVersionCodename='13'
+sdkVersion:'24'
+targetSdkVersion:'33'
+```
+
+### v2_layoutonly.apk
+```
+package: name='com.RoamingStar.BlueArchive' versionCode='73' versionName='3.0.2' platformBuildVersionName='13' platformBuildVersionCode='33' compileSdkVersion='33' compileSdkVersionCodename='13'
+sdkVersion:'24'
+targetSdkVersion:'33'
+```
+
+* diff vs baseline = **0 line(s)** 
+
+### v3_dexpatch.apk
+```
+package: name='com.RoamingStar.BlueArchive' versionCode='73' versionName='3.0.2' platformBuildVersionName='13' platformBuildVersionCode='33' compileSdkVersion='33' compileSdkVersionCodename='13'
+sdkVersion:'24'
+targetSdkVersion:'33'
+```
+
+* diff vs baseline = **0 line(s)** 
+
+## 3) zip entry diff (per entry: size / crc32 / method / sha256)
+
+### v2_layoutonly.apk
+
+* entries: baseline 41307 / this 41307
+* **changed entries (4)**:
+
+| entry | old size | new size | old crc32 | new crc32 | old method | new method |
+|---|---|---|---|---|---|---|
+| `META-INF/CERT.RSA` | 1208 | 1208 | 164bde63 | 0e26fe6b | 0 | 0 |
+| `META-INF/CERT.SF` | 156 | 156 | 759ecf8c | d156a581 | 0 | 0 |
+| `META-INF/MANIFEST.MF` | 5151246 | 5151246 | 1fef5173 | c9adf0b7 | 0 | 0 |
+| `res/Q9.xml` | 7292 | 8284 | 22a6215c | e90efac7 | 0 | 0 |
+
+* only-in-baseline: none
+* only-in-new: none
+
+* `res/Q9.xml` content sha256: `22a6215c` -> `e90efac7`
+* changed entries outside {res/Q9.xml + META-INF/*}: **none**
+
+### v3_dexpatch.apk
+
+* entries: baseline 41307 / this 41307
+* **changed entries (5)**:
+
+| entry | old size | new size | old crc32 | new crc32 | old method | new method |
+|---|---|---|---|---|---|---|
+| `META-INF/CERT.RSA` | 1208 | 1208 | 164bde63 | b7b37036 | 0 | 0 |
+| `META-INF/CERT.SF` | 156 | 156 | 759ecf8c | 63deb21a | 0 | 0 |
+| `META-INF/MANIFEST.MF` | 5151246 | 5151246 | 1fef5173 | 02552d57 | 0 | 0 |
+| `classes.dex` | 9327708 | 9327708 | ce71d74e | 443c22ce | 8 | 0 |
+| `res/Q9.xml` | 7292 | 8284 | 22a6215c | e90efac7 | 0 | 0 |
+
+* only-in-baseline: none
+* only-in-new: none
+
+* `classes.dex` content sha256: `ce71d74e` -> `443c22ce`
+* `res/Q9.xml` content sha256: `22a6215c` -> `e90efac7`
+* changed entries outside {res/Q9.xml, classes.dex + META-INF/*}: **none**
+
+
+---
+
+raw log written to /mnt/c/Users/su/Desktop/大肥鱼项目/BAServer/work/ba/apk_patch/v2v3/selftest_out.txt

@@ -1,0 +1,228 @@
+--- account_auth_probe.py.bak (161194 B)
++++ account_auth_probe.py (167430 B)
+@@ -47,6 +47,170 @@
+ _SVC_INST = None
+ _LAST_SID = None
+ 
++
++# ==== BEGIN 90004-PATCH v1 (from work/ba/server/deploy/dto90004.py)
++# 本块由 work/ba/server/deploy/patch_90004.py --apply 生成，不要手改。
++# 改逻辑请改 work/ba/server/deploy/dto90004.py，然后重新 --apply（幂等）。
++
++import json
++import os
++
++P90004_DATA_KEYS = (
++    "Notices", "Events", "Issues", "Banners", "GachaProbabilityDisplay",
++    "GuidePopup", "GachaPeriodDisplay", "RaidPeriodDisplay", "Survey",
++)
++
++P90004_NULL_KEYS = ("GachaPeriodDisplay", "RaidPeriodDisplay", "Survey")
++
++P90004_LIST_KEYS = ("Notices", "Events", "Issues", "Banners",
++                    "GachaProbabilityDisplay", "GuidePopup")
++
++P90004_NOTICE_FIELDS = (
++    ("NoticeId", "int", True),
++    ("StartDate", "str", True),
++    ("EndDate", "str", True),
++    ("Url", "str", True),
++    ("Title", "str", True),
++    ("DisplayOrder", "int", True),
++)
++
++P90004_EVENT_FIELDS = P90004_NOTICE_FIELDS
++
++P90004_BANNER_FIELDS = (
++    ("BannerId", "int", True),
++    ("StartDate", "str", True),
++    ("EndDate", "str", True),
++    ("CdnUrl", "str", True),
++    ("LinkedLobbyBannerId", "int", False),
++    ("BannerType", "int", False),
++    ("LinkUrl", "str", True),
++    ("SurveyId", "int", True),
++    ("BannerDisplayType", "int", True),
++    ("CreateTime", "str", True),
++)
++
++P90004_GACHA_FIELDS = (
++    ("GachaProbabilityDisplayId", "int", True),
++    ("Url", "str", True),
++    ("LinkedLobbyBannerId", "int", True),
++    ("GachaDisplayTag", "int", True),
++)
++
++P90004_OPS_PATHS = (
++    "/www/wwwroot/bapatch/_ba_state/90004_ops.json",
++    "/www/wwwroot/bapatch/90004_ops.json",
++)
++
++def _p90004_int(v):
++    if isinstance(v, bool):
++        return int(v)
++    if isinstance(v, int):
++        return v
++    if isinstance(v, float) and v.is_integer():
++        return int(v)
++    if isinstance(v, str):
++        s = v.strip()
++        try:
++            return int(s)
++        except Exception:
++            return 0
++    return 0
++
++def _p90004_str(v):
++    if isinstance(v, str):
++        return v
++    if v is None:
++        return ""
++    if isinstance(v, bool):
++        return "true" if v else "false"
++    return str(v)
++
++def _p90004_items(raw, fields):
++    """把任意脏数据投影成「字段白名单 + 类型强转 + 官方键序」的列表。
++
++    白名单的意义：运营数据里多写的键不会漏到客户端（多键 = 结构错）；
++    可选字段缺省时**整个键不出现**（官方 2/7 条 banner 就是这样）。
++    """
++    if not isinstance(raw, list):
++        return []
++    out = []
++    for it in raw:
++        if not isinstance(it, dict):
++            continue
++        row = {}
++        for name, kind, need in fields:
++            if name in it and it[name] is not None:
++                row[name] = _p90004_int(it[name]) if kind == "int" else _p90004_str(it[name])
++            elif need:
++                row[name] = 0 if kind == "int" else ""
++            # 可选且缺 → 不出现（proto3 presence 语义）
++        out.append(row)
++    return out
++
++def build_90004_management_data(session_key, ticks, request_id, ops=None):
++    """返回官方形状的 90004 响应（6 个顶层键，Data 是 9 键 dict）。
++
++    session_key : {"AccountServerId": int, "MxToken": str}   取不到时传 {} 或 None
++    ticks       : ServerTimeTicks（.NET 100ns）
++    request_id  : 必须与 HTTP 响应头 requestid 同值（官方逐字节相同）
++    ops         : 运营数据 dict，可残缺；None = 新号（4 个列表全空 + 3 个 null）
++    """
++    sk = session_key if isinstance(session_key, dict) else {}
++    ops = ops if isinstance(ops, dict) else {}
++
++    data = {}
++    data["Notices"] = _p90004_items(ops.get("Notices"), P90004_NOTICE_FIELDS)
++    data["Events"] = _p90004_items(ops.get("Events"), P90004_EVENT_FIELDS)
++    data["Issues"] = _p90004_items(ops.get("Issues"), ())
++    data["Banners"] = _p90004_items(ops.get("Banners"), P90004_BANNER_FIELDS)
++    data["GachaProbabilityDisplay"] = _p90004_items(
++        ops.get("GachaProbabilityDisplay"), P90004_GACHA_FIELDS)
++    data["GuidePopup"] = _p90004_items(ops.get("GuidePopup"), ())
++    # 三个恒 null（不是 False、不是 {}）
++    data["GachaPeriodDisplay"] = None
++    data["RaidPeriodDisplay"] = None
++    data["Survey"] = None
++
++    return {
++        "Protocol": 90004,
++        "SessionKey": {"AccountServerId": _p90004_int(sk.get("AccountServerId")),
++                       "MxToken": _p90004_str(sk.get("MxToken"))},
++        "ServerTimeTicks": _p90004_int(ticks),
++        "ServerNotification": 0,
++        "RequestId": _p90004_str(request_id),
++        "Data": data,
++    }
++
++def load_90004_ops(path=None):
++    """读运营数据：显式 path 优先；否则扫 P90004_OPS_PATHS。失败一律返回 None。"""
++    cands = [path] if path else list(P90004_OPS_PATHS)
++    for p in cands:
++        if not p or not os.path.isfile(p):
++            continue
++        try:
++            with open(p, "r", encoding="utf-8") as fh:
++                obj = json.load(fh)
++        except Exception:
++            continue
++        if isinstance(obj, dict) and isinstance(obj.get("Data"), dict):
++            obj = obj["Data"]          # 容忍直接把整个响应存进去
++        if isinstance(obj, dict):
++            return obj
++    return None
++
++def data_key_report(obj):
++    """给日志/验收用：Data 的键数 + 各列表长度。"""
++    d = obj.get("Data") or {}
++    return {"data_keys": len(d),
++            "Notices": len(d.get("Notices") or []),
++            "Events": len(d.get("Events") or []),
++            "Issues": len(d.get("Issues") or []),
++            "Banners": len(d.get("Banners") or []),
++            "GachaProbabilityDisplay": len(d.get("GachaProbabilityDisplay") or []),
++            "GuidePopup": len(d.get("GuidePopup") or []),
++            "nulls": [k for k in P90004_NULL_KEYS if d.get(k, "missing") is None]}
++
++# ==== END 90004-PATCH v1 ====
+ 
+ def acct_svc_on():
+     """1 = enabled (default), 0 = disabled."""
+@@ -1879,26 +2043,28 @@
+         # <<< BAPATCH-P3-HOOK-G v1 END <<<
+         if num == 90004:
+             from datetime import datetime as _d9
++            import uuid as _uuid9
+             _n9 = _d9.now()
+             _t9 = int((_n9 - _d9(1, 1, 1)).total_seconds()) * 10_000_000 + _n9.microsecond * 10
+-            obj = {"Protocol": 90004,
+-                   "ServerTimeTicks": _t9,
+-                   "ServerNotification": 0,
+-                   "MissionProgressDBs": [],
+-                   "EventMissionProgressDBDict": {},
+-                   "BattlePassMissionProgressDBDict": {},
+-                   "StaticOpenConditions": dict(cn_inner.STATIC_OPEN_CONDITIONS),
+-                   "Notices": [],
+-                   "Events": [],
+-                   "Issues": [],
+-                   "Banners": [],
+-                   "GachaProbabilityDisplay": False,
+-                   "ContentLock": False,
+-                   "GachaPeriodDisplay": False,
+-                   "RaidPeriodDisplay": False,
+-                   "GuidePopup": {}}
+-            rec['gen_kind'] = 'management-90004'
++            _sk9 = getattr(SESSION, 'session_key', None)
++            if not isinstance(_sk9, dict):
++                _sk9 = {}
++            _sk9 = {'AccountServerId': _sk9.get('AccountServerId')
++                                  or getattr(SESSION, 'account_id', 0) or 0,
++                    'MxToken': _sk9.get('MxToken') or ''}
++            _rid9 = pick_requestid(rec) or str(_uuid9.uuid4())
++            if not rec.get('requestid_source'):
++                rec['requestid_source'] = 'random'
++            obj = build_90004_management_data(_sk9, _t9, _rid9, load_90004_ops())
++            rec['gen_kind'] = 'management-90004-official'
+             rec['fallback'] = 'generic-envelope'
++            rec['gen_90004_data_keys'] = len(obj.get('Data') or {})
++            rec['gen_90004_bytes'] = len(json.dumps(obj, ensure_ascii=False,
++                                                        separators=(',', ':')))
++            _r9 = data_key_report(obj)
++            rec['gen_90004_lists'] = dict((k, _r9[k]) for k in (
++                'Notices', 'Events', 'Issues', 'Banners',
++                'GachaProbabilityDisplay', 'GuidePopup'))
+             return self._cn_send_envelope(name or 'Management_Data', obj, rec)
+         if num == 24000:
+             obj = _ba24000_build(frag if 'frag' in locals() else '', rec)
+@@ -1962,7 +2128,7 @@
+     def _cn_send_envelope(self, proto_name, obj, rec):
+         """Encode exactly the object we were given (no cn_wrap_mode re-building)."""
+         import uuid as _uuid
+-        rid = str(_uuid.uuid4())
++        rid = (obj.get('RequestId') if isinstance(obj, dict) else '') or str(_uuid.uuid4())  # 90004-PATCH: outer requestid = inner RequestId
+         wire, plain, key = cn_wire.wrap_response(proto_name, obj, rid)
+         rec['wrap_mode'] = 'direct_envelope'
+         rec['enc_requestid'] = rid

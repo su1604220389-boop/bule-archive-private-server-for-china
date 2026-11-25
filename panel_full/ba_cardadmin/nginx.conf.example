@@ -1,0 +1,65 @@
+# =============================================================================
+#  ba_cardadmin / nginx.conf.example
+#
+#  说明：宝塔面板的 nginx 站点默认 **不使用 .htaccess**，所以必须把下面这些
+#        location 规则加到「站点配置」里，才能挡住 inc/、cron/、config.php 等。
+#
+#  怎么加（不会影响其它站点）：
+#    宝塔 → 网站 → 找到本站点 → 设置 → 配置文件
+#    在 server { ... } 里、已有的 location ~ [^/]\.php(/|$) 之前，粘贴下面内容
+#    → 保存（宝塔会自动 nginx -t 并 reload）
+#
+#  ★ 不要改 /www/server/nginx/conf/nginx.conf 全局配置，也不要手动 nginx -s reload。
+# =============================================================================
+
+    # ---- 1) 敏感文件：配置、安装锁、说明、SQL、日志、隐藏文件 ----
+    location ~* ^/(config\.php|config\.php\.example|installed\.lock|README\.md)$ {
+        deny all;
+        return 403;
+    }
+    location ~* \.(sql|log|bak|old|orig|swp|tmp|md)$ {
+        deny all;
+        return 403;
+    }
+    location ~ /\. {
+        deny all;
+        return 403;
+    }
+
+    # ---- 2) 内部目录：一律不让外部访问 ----
+    #  inc/   PDO、鉴权、同步引擎（里面的 .php 不是入口）
+    #  cron/  定时任务脚本（只允许命令行跑）
+    #  sql/   建表语句
+    #  state/ 同步锁、备用备份、同步请求标记
+    #  logs/  sync.log
+    location ^~ /inc/   { deny all; return 403; }
+    location ^~ /cron/  { deny all; return 403; }
+    location ^~ /sql/   { deny all; return 403; }
+    location ^~ /state/ { deny all; return 403; }
+    location ^~ /logs/  { deny all; return 403; }
+
+    # 说明：location ^~ 优先级高于正则，所以上面的目录规则一定生效。
+
+    # ---- 3) 关掉目录列表 ----
+    autoindex off;
+
+    # ---- 4) 首页 ----
+    index index.php index.html;
+
+    # ---- 5) 静态资源缓存（可选，面板离线可用，加不加都行）----
+    location ~* \.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?)$ {
+        expires 7d;
+        access_log off;
+        try_files $uri =404;
+    }
+
+# =============================================================================
+#  附：宝塔「伪静态」里只需要这一条（若你没有自定义过就别动）
+#     location / { try_files $uri $uri/ /index.php?$query_string; }
+#
+#  自检（在服务器上执行，应返回 403 / 404，而不是 200）：
+#     curl -I http://127.0.0.1/config.php
+#     curl -I http://127.0.0.1/inc/db.php
+#     curl -I http://127.0.0.1/cron/sync_cards.php
+#     curl -I http://127.0.0.1/sql/schema.sql
+# =============================================================================

@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""cn_inner27.py -- AccountAuthResponse, 27 declared fields (disassembly-confirmed order).
+
+Per lead 2026-11-14 05:19 (report/61): type[10689] MX.NetworkProtocol.AccountAuthResponse
+has 27 fields. Protocol lives on the HttpMessage wrapper layer and is EXCLUDED from these 27;
+it is added separately here so the A/B can vary its type only.
+
+Rules used for values (lead section 四):
+  nested objects -> {}      collections -> []      string -> ""      bool -> false      ints -> 0 / real value
+  AccountDB -> {} (avoids DateTime fields entirely)
+  no SessionKey, no _probe, no canary markers
+"""
+import json
+from datetime import datetime as _dtm
+import uuid as _uuid
+
+# declared order, exactly as given
+ACCOUNT_SERVER_ID = 10015354380
+
+
+def _new_mxtoken():
+    return str(_uuid.uuid4())
+
+
+FIELDS_27 = [
+    "CurrentVersion", "MinimumVersion", "IsDevelopment", "BattleValidation", "UpdateRequired",
+    "TTSCdnUri", "AccountDB", "AttendanceBookRewards", "AttendanceHistoryDBs",
+    "RepurchasableMonthlyProductCountDBs", "MonthlyProductParcel", "MonthlyProductMail",
+    "BiweeklyProductParcel", "BiweeklyProductMail", "WeeklyProductParcel", "WeeklyProductMail",
+    "EncryptedUID", "AccountRestrictionsDB", "IssueAlertInfos", "DailyRecordDBs", "OptionDB",
+    "IsArenaAnonymous", "AccountLimitedFlashSaleDBs", "NewlyAddedShopCashIds", "IsNew",
+    "Desc", "FunctionClose",
+]
+
+# also present on ResponsePacket (base) — NOT part of the 27, added for the client's base-class needs
+BASE_EXTRA = ["ServerTimeTicks", "ServerNotification", "StaticOpenConditions", "MissionProgressDBs",
+              "EventMissionProgressDBDict", "BattlePassMissionProgressDBDict"]
+
+
+def build(protocol_value=1002, current_version=446690, with_base=False, ticks=None):
+    d = {"Protocol": protocol_value}
+    d.update({
+        "CurrentVersion": current_version,
+        "MinimumVersion": 0,
+        "IsDevelopment": False,
+        "BattleValidation": False,
+        "UpdateRequired": False,
+        "TTSCdnUri": "",
+        "AccountDB": {},
+        "AttendanceBookRewards": [],
+        "AttendanceHistoryDBs": [],
+        "RepurchasableMonthlyProductCountDBs": [],
+        "MonthlyProductParcel": [],
+        "MonthlyProductMail": [],
+        "BiweeklyProductParcel": [],
+        "BiweeklyProductMail": [],
+        "WeeklyProductParcel": [],
+        "WeeklyProductMail": [],
+        "EncryptedUID": "",
+        "AccountRestrictionsDB": {},
+        "IssueAlertInfos": [],
+        "DailyRecordDBs": [],
+        "OptionDB": {},
+        "IsArenaAnonymous": False,
+        "AccountLimitedFlashSaleDBs": [],
+        "NewlyAddedShopCashIds": [],
+        "IsNew": False,
+        "Desc": "",
+        "FunctionClose": {},
+    })
+    # ---- AccountDB: full 22-field MX.GameLogic.DBModel.AccountDB (lead 2026-11-14 14:33) ----
+    _now2 = _dtm.now().strftime('%Y-%m-%dT%H:%M:%S')
+    d["AccountDB"] = {
+        "ServerId": ACCOUNT_SERVER_ID,
+        "Nickname": "111",
+        "CallName": "111",
+        "DevId": "314816420",
+        "State": 1,
+        "Level": 1,
+        "Exp": 0,
+        "Comment": "",
+        "LobbyMode": 0,
+        "RepresentCharacterServerId": 0,
+        "MemoryLobbyUniqueId": 0,
+        "LastConnectTime": _now2,
+        "BirthDay": "1970-01-01T00:00:00",
+        "CallNameUpdateTime": _now2,
+        "PublisherAccountId": 314816420,
+        "RetentionDays": 0,
+        "VIPLevel": 0,
+        "CreateDate": "2026-01-01T00:00:00",
+        "UnReadMailCount": 0,
+        "LinkRewardDate": None,
+        "LastReturningDate": None,
+        "Location": "",
+    }
+
+    # ---- BasePacket / ResponsePacket fields the real 3740-byte response has ----
+    d["ServerNotification"] = 0
+    d["SessionKey"] = {"AccountServerId": ACCOUNT_SERVER_ID, "MxToken": _new_mxtoken()}
+    try:
+        _real = json.load(open('/www/wwwroot/_ba_state/e1_inner.json'))
+        _soc = _real.get("StaticOpenConditions", {})
+        d["StaticOpenConditions"] = _soc if isinstance(_soc, dict) else {}
+    except Exception:
+        d["StaticOpenConditions"] = {}
+    _dt = _dtm.now()
+    d["ServerTimeTicks"] = int((_dt - _dtm(1, 1, 1)).total_seconds()) * 10_000_000 + _dt.microsecond * 10
+
+    if with_base:
+        if ticks is None:
+            from datetime import datetime
+            dt = datetime.now()
+            ticks = int((dt - datetime(1, 1, 1)).total_seconds()) * 10_000_000 + dt.microsecond * 10
+        d.update({
+            "ServerTimeTicks": ticks,
+            "ServerNotification": 0,
+            "StaticOpenConditions": {},
+            "MissionProgressDBs": [],
+            "EventMissionProgressDBDict": {},
+            "BattlePassMissionProgressDBDict": {},
+        })
+    # keep declared order for readability
+    RESTORE = ["ServerNotification", "ServerTimeTicks", "SessionKey", "StaticOpenConditions"]
+    order = (["Protocol"] + FIELDS_27 + RESTORE + (BASE_EXTRA if with_base else []))
+    return {k: d[k] for k in order if k in d}
+
+
+def as_json(d):
+    return json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+
+
+if __name__ == "__main__":
+    for tag, pv in (("A (int 1002)", 1002), ("B (str Account_Auth)", "Account_Auth")):
+        d = build(pv)
+        s = as_json(d)
+        print("=" * 70)
+        print(tag, " keys =", len(d), " json bytes =", len(s.encode()))
+        print(s)
+        print()

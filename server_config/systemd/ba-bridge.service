@@ -1,0 +1,18 @@
+[Unit]
+Description=BA auth bridge (account_auth_probe) on 9097
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/www/wwwroot/bapatch/tools
+UMask=007
+ExecStart=/usr/bin/python3 /www/wwwroot/bapatch/tools/account_auth_probe.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/www/wwwroot/bapatch/logs/bridge_stdout.log
+StandardError=append:/www/wwwroot/bapatch/logs/bridge_stdout.log
+
+[Install]
+WantedBy=multi-user.target

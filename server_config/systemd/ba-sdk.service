@@ -1,0 +1,18 @@
+[Unit]
+Description=BA card-key SDK (sdkcard.py, 127.0.0.1:8080)
+Documentation=file:///www/wwwroot/ba_sdk/sdkcard.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/www/wwwroot/ba_sdk
+ExecStart=/usr/bin/python3 /www/wwwroot/ba_sdk/sdkcard.py
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/ba-sdk.log
+StandardError=append:/var/log/ba-sdk.log
+
+[Install]
+WantedBy=multi-user.target

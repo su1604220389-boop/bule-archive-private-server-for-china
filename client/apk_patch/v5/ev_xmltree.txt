@@ -1,0 +1,53 @@
+### v4 (throw-away build apk) -- root children, aapt dump xmltree
+$ aapt dump xmltree v4_layout_build.apk res/layout/fragment_default_mobile_code_login.xml | grep "^      E: "
+12:      E: LinearLayout (line=4)
+47:      E: TextView (line=12)
+58:      E: TextView (line=13)
+68:      E: View (line=14)
+75:      E: TextView (line=15)
+86:      E: androidx.constraintlayout.widget.ConstraintLayout (line=16)
+
+### v5 (throw-away build apk) -- root children
+$ aapt dump xmltree v5_layout_build.apk res/layout/fragment_default_mobile_code_login.xml | grep "^      E: "
+12:      E: LinearLayout (line=4)
+47:      E: RadioGroup (line=12)
+79:      E: TextView (line=16)
+90:      E: TextView (line=17)
+100:      E: View (line=18)
+107:      E: TextView (line=19)
+118:      E: androidx.constraintlayout.widget.ConstraintLayout (line=20)
+
+### v5 -- the new RadioGroup block, raw attributes as compiled into the AXML
+$ aapt dump xmltree v5_layout_build.apk res/layout/fragment_default_mobile_code_login.xml | sed -n "47,78p"
+      E: RadioGroup (line=12)
+        A: android:gravity(0x010100af)=(type 0x11)0x10
+        A: android:orientation(0x010100c4)=(type 0x10)0x0
+        A: android:background(0x010100d4)=(type 0x1c)0xfff1f5fc
+        A: android:paddingLeft(0x010100d6)=(type 0x5)0x401
+        A: android:paddingTop(0x010100d7)=(type 0x5)0x201
+        A: android:paddingRight(0x010100d8)=(type 0x5)0x401
+        A: android:paddingBottom(0x010100d9)=(type 0x5)0x201
+        A: android:layout_width(0x010100f4)=(type 0x10)0xffffffff
+        A: android:layout_height(0x010100f5)=(type 0x10)0xfffffffe
+        A: android:layout_marginLeft(0x010100f7)=(type 0x5)0x1801
+        A: android:layout_marginTop(0x010100f8)=(type 0x5)0xa01
+        A: android:layout_marginRight(0x010100f9)=(type 0x5)0x1801
+        E: RadioButton (line=13)
+          A: android:textSize(0x01010095)=(type 0x5)0xf02
+          A: android:textColor(0x01010098)=(type 0x1c)0xff2b3445
+          A: android:gravity(0x010100af)=(type 0x11)0x11
+          A: android:layout_width(0x010100f4)=(type 0x5)0x1
+          A: android:layout_height(0x010100f5)=(type 0x5)0x2801
+          A: android:checked(0x01010106)=(type 0x12)0xffffffff
+          A: android:text(0x0101014f)="游客登录" (Raw: "游客登录")
+          A: android:layout_weight(0x01010181)=(type 0x4)0x3f800000
+          A: android:buttonTint(0x0101046f)=(type 0x1c)0xff2f6fed
+        E: RadioButton (line=14)
+          A: android:textSize(0x01010095)=(type 0x5)0xf02
+          A: android:textColor(0x01010098)=(type 0x1c)0xff2b3445
+          A: android:gravity(0x010100af)=(type 0x11)0x11
+          A: android:layout_width(0x010100f4)=(type 0x5)0x1
+          A: android:layout_height(0x010100f5)=(type 0x5)0x2801
+          A: android:text(0x0101014f)="卡密登录" (Raw: "卡密登录")
+          A: android:layout_weight(0x01010181)=(type 0x4)0x3f800000
+          A: android:buttonTint(0x0101046f)=(type 0x1c)0xff2f6fed

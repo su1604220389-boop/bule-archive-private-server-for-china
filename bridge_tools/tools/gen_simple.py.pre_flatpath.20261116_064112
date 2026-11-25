@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""gen_simple.py -- 1005 Account_GetTutorial / 4000 Item_List / 26000 ContentSave_Get 生成器。
+
+用法:
+    python work\\ba\\server\\deploy\\gen_simple.py --protocol 1005  --account-id 10015354380 --out x.json
+    python work\\ba\\server\\deploy\\gen_simple.py --protocol 4000  --account-id 10015354380 --out y.json
+    python work\\ba\\server\\deploy\\gen_simple.py --protocol 26000 --account-id 10015354380 --out z.json
+    python work\\ba\\server\\deploy\\gen_simple.py --protocol 1005,4000,26000 --out-dir report\\_tmp
+
+做什么:
+    1. 调 simple_payload.simple_build() 出载荷（**唯一真源**，同一份源码被 patch_simple.py 内嵌进 bridge）
+    2. 用 work\\ba\\server\\prototype\\specgen.py（已验证的生成引擎）的 conform() 把载荷投影到
+       work\\ba\\proto\\official_spec.json 的形状上 —— 生成物 PASS spec_check 是**构造保证**，不是手调
+    3. 落盘 + 打印字节数三条口径（inner packet / outer plain / 预测 wire）和官方实测值
+    4. 用 work\\ba\\proto\\spec_check.py 的同一份 check_one() 就地判 PASS/FAIL，并逐条解释 WARN
+
+只读上游，绝不改写：
+    work\\ba\\proto\\official_spec.json
+    work\\ba\\proto\\initial_state_rules.json
+    work\\ba\\server\\prototype\\specgen.py
+    report\\_tmp\\official_decoded_201\\*.response.json   （仅取 meta.resp_bytes 做对照）
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+
+sys.dont_write_bytecode = True          # 不给 work\ba\proto\ / prototype\ 留 __pycache__
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))     # ...\BAServer
+PROTO_DIR = os.path.join(ROOT, 'work', 'ba', 'proto')
+SPEC_PATH = os.path.join(PROTO_DIR, 'official_spec.json')
+RULES_PATH = os.path.join(PROTO_DIR, 'initial_state_rules.json')
+DECODED_DIR = os.path.join(ROOT, 'report', '_tmp', 'official_decoded_201')
+SPECGEN_PATH = os.path.join(ROOT, 'work', 'ba', 'server', 'prototype', 'specgen.py')
+
+OFFICIAL_SAMPLE = {
+    1005: '07_1005_api_account_gettutorial.response.json',
+    4000: '03_4000_api_item_list.response.json',
+    26000: '05_26000_api_contentsave_get.response.json',
+}
+
+PROTOCOLS = (1005, 4000, 26000)
+
+
+# ---------------------------------------------------------------- 载入上游
+def _load_module(name, path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def load_simple():
+    return _load_module('deploy_simple_payload', os.path.join(HERE, 'simple_payload.py'))
+
+
+def load_specgen():
+    return _load_module('deploy_specgen', SPECGEN_PATH)
+
+
+def load_spec_check():
+    sys.path.insert(0, PROTO_DIR)
+    import spec_check                                              # noqa: E402
+    return spec_check
+
+
+# ---------------------------------------------------------------- 字节口径
+def wire_len_for_plain(plain_len):
+    """cn_wire 的真实容器：base64( AES-CBC(PKCS7(plain)) + 32 字节 key ) -> 字符数。
+
+    只跟明文字节数有关（key 固定 32 字节、IV 不传输），所以不加密也能算出官方那个 resp_bytes。
+    """
+    padded = plain_len + (16 - plain_len % 16) if plain_len % 16 else plain_len
+    raw = padded + 32
+    return 4 * ((raw + 2) // 3)
+
+
+def outer_plain(protocol_name, packet, rid):
+    """与 cn_wire.build_plaintext 逐字节相同（同分隔符、同 ensure_ascii）。"""
+    return json.dumps({'protocol': protocol_name,
+                       'packet': packet,
+                       'requestid': rid},
+                      ensure_ascii=False, separators=(',', ':'))
+
+
+def official_meta(proto):
+    p = os.path.join(DECODED_DIR, OFFICIAL_SAMPLE.get(proto, ''))
+    if not OFFICIAL_SAMPLE.get(proto) or not os.path.isfile(p):
+        return None
+    with open(p, 'r', encoding='utf-8') as fh:
+        j = json.load(fh)
+    pl = json.loads(j['plain'])
+    return {'file': os.path.basename(p),
+            'resp_bytes': j.get('meta', {}).get('resp_bytes'),
+            'packet_len': len(pl.get('packet') or ''),
+            'plain_len': len(j.get('plain') or '')}
+
+
+# ---------------------------------------------------------------- WARN 解释
+WARN_TEXT = {
+    (1005, '长度越界', 'TutorialIds'):
+        '官方那一条是 32 级号的进度（21 条 = 1..14,16,17,19,21,22,23,27），新号一条都没播过 -> 0 条。'
+        'spec 的 len_min=len_max=21 只是「官方样本观测到的范围」，不是协议约束。',
+    (1005, '空数组首见', 'TutorialIds'):
+        '官方样本里没出现过空数组，但空数组是「进度为空」唯一能表达的形状；'
+        'initial_state_rules q7_tutorials 明确 initial.TutorialIds = []（high）。',
+    (4000, '长度越界', 'ItemDBs'):
+        '官方 134 条是玩过的号的道具；新号只有 DefaultParcelExcelTable 唯一一行 '
+        'ParcelType=4(Item) ParcelId=2(加速券) Amount=5 -> 1 条。spec 的 134 只是观测范围。',
+}
+
+
+def warn_text(proto, kind, path):
+    key = (proto, kind, path)
+    if key in WARN_TEXT:
+        return WARN_TEXT[key]
+    for (p, k, prefix), txt in WARN_TEXT.items():
+        if p == proto and k == kind and path.startswith(prefix):
+            return txt
+    return '（未登记的提示，按 spec 口径属合法形态）'
+
+
+# ---------------------------------------------------------------- 逐字节复现官方
+def replay_official(simple):
+    """用**官方那一条的数据**喂同一个构造器，看能不能逐字节吐出官方 packet。
+
+    这是本文件最强的一条自证：结构 / 键序 / 序列化口径只要有一处不同，字符串就对不上。
+    4000 的 ItemDBs 是「哪个号有哪些道具」的玩家数据（134 条 vs 新号 1 条），
+    所以复现时换成官方那 134 条 —— 换来的是「除 ItemDBs 外的每个字节都和官方相同」，
+    另加一条行形状比对（我们的 1 行 vs 官方 134 行的键集/键序）。
+    """
+    rc = 0
+    print('=' * 78)
+    print('逐字节复现官方样本（数据取官方、结构取我们的构造器）')
+    print('%-6s %-20s %-8s %8s %8s %8s' % ('协议', '官方样本', '结果', 'ours', 'official', 'delta'))
+    for proto in PROTOCOLS:
+        fn = OFFICIAL_SAMPLE.get(proto)
+        p = os.path.join(DECODED_DIR, fn)
+        if not os.path.isfile(p):
+            print('%-6d %-20s SKIP（文件不在）' % (proto, fn))
+            continue
+        with open(p, 'r', encoding='utf-8') as fh:
+            j = json.load(fh)
+        inner = j['inner']
+        official = json.loads(j['plain'])['packet']
+        kw = dict(account_id=inner['SessionKey']['AccountServerId'],
+                  mxtoken=inner['SessionKey']['MxToken'],
+                  rid=inner['RequestId'],
+                  ticks=inner['ServerTimeTicks'])
+        if proto == 1005:
+            kw['tutorial_ids'] = inner['TutorialIds']
+        mine = simple.simple_build(proto, **kw)
+        if proto == 4000:
+            mine['ItemDBs'] = inner['ItemDBs']
+        s = json.dumps(mine, ensure_ascii=False, separators=(',', ':'))
+        same = (s == official)
+        print('%-6d %-20s %-8s %8d %8d %+8d'
+              % (proto, fn.split('_', 1)[1][:20], 'PASS' if same else 'FAIL',
+                 len(s), len(official), len(s) - len(official)))
+        if not same:
+            rc = 1
+            for i, (a, c) in enumerate(zip(s, official)):
+                if a != c:
+                    print('       首处不同 @%d  ours=%r  official=%r'
+                          % (i, s[max(0, i - 30):i + 30], official[max(0, i - 30):i + 30]))
+                    break
+            else:
+                print('       前缀相同，长度不同: ours 多出 %r' % (s[len(official):],))
+        if proto == 4000:
+            ours_row = simple.simple_build(4000, **kw)['ItemDBs'][0]
+            off_row = inner['ItemDBs'][0]
+            shape_ok = list(ours_row.keys()) == list(off_row.keys())
+            print('       ItemDBs 行形状: ours=%s' % list(ours_row.keys()))
+            print('                       official=%s  -> %s'
+                  % (list(off_row.keys()), 'key 集/键序相同' if shape_ok else '不同'))
+            if not shape_ok:
+                rc = 1
+    print('结论: %s' % ('PASS（三个协议都能逐字节复现官方）' if rc == 0 else 'FAIL'))
+    return rc
+
+
+# ---------------------------------------------------------------- 主流程
+def render(proto, args, simple, Spec, issues_cls):
+    ticks = args.ticks
+    if ticks is None:
+        ticks = simple.simple_ticks(args.ticks_mode, args.now)
+    packet_obj = simple.simple_build(
+        proto,
+        account_id=args.account_id,
+        mxtoken=args.mxtoken,
+        rid=args.request_id,
+        ticks=ticks,
+        tutorial_ids=args.tutorial_ids,
+    )
+    spec = Spec(args.spec)
+    issues = issues_cls()
+    shaped = spec.build(proto, packet_obj, issues)
+    return shaped, issues, spec
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description='1005 / 4000 / 26000 响应生成器（spec 驱动结构 + 新号初始状态驱动数据）')
+    ap.add_argument('--protocol', default='1005',
+                    help='协议号，可逗号分隔：1005 / 4000 / 26000 / 1005,4000,26000')
+    ap.add_argument('--account-id', '--server-id', dest='account_id', type=int,
+                    default=10015354380, help='账号 AccountServerId（默认 10015354380）')
+    ap.add_argument('--out', default=None, help='输出文件；多协议时可用 {protocol} 占位')
+    ap.add_argument('--out-dir', default=None, help='多协议输出目录（文件名 t<协议>.json）')
+    ap.add_argument('--mxtoken', default=None, help='不传 = 由 account-id 派生 64 字符 base64')
+    ap.add_argument('--request-id', default=None, help='不传 = uuid4')
+    ap.add_argument('--now', default=None, help='固定时间（UTC，YYYY-MM-DDTHH:MM:SS），不传 = 当前时间')
+    ap.add_argument('--ticks', type=int, default=None,
+                    help='直接指定 .NET ticks（复现官方某一条响应用；给了就压过 --now/--ticks-mode）')
+    ap.add_argument('--tutorial-ids', default=None,
+                    help='调试/复现用：覆盖 1005 的 TutorialIds，如 1,2,3（新号不发这个参数 = 空）')
+    ap.add_argument('--ticks-mode', choices=('utc', 'local'), default='utc',
+                    help='ServerTimeTicks 取 UTC（默认，与官方实测一致）还是本地时间')
+    ap.add_argument('--pretty', action='store_true', help='缩进输出（默认紧凑，等于真正进 packet 的字节）')
+    ap.add_argument('--quiet', action='store_true', help='只打一行结论')
+    ap.add_argument('--replay-official', action='store_true',
+                    help='自证模式：用官方那三条样本的数据喂同一个构造器，逐字节比对官方 packet')
+    ap.add_argument('--spec', default=SPEC_PATH, help='official_spec.json 路径')
+    args = ap.parse_args(argv)
+
+    simple = load_simple()
+    if args.replay_official:
+        return replay_official(simple)
+
+    if args.now:
+        import datetime as _dt
+        args.now = _dt.datetime.strptime(args.now, '%Y-%m-%dT%H:%M:%S')
+    if args.tutorial_ids is not None:
+        args.tutorial_ids = [int(x) for x in str(args.tutorial_ids).replace(' ', '').split(',') if x != '']
+
+    specgen = load_specgen()
+    spec_check = load_spec_check()
+
+    protos = [int(x) for x in str(args.protocol).replace(' ', '').split(',') if x]
+    for p in protos:
+        if p not in PROTOCOLS:
+            ap.error('只支持 %s，收到 %s' % (list(PROTOCOLS), p))
+
+    paths = []
+    for p in protos:
+        if args.out_dir:
+            out = os.path.join(args.out_dir, 't%d.json' % p)
+        elif args.out:
+            if '{protocol}' in args.out:
+                out = args.out.replace('{protocol}', str(p))
+            elif len(protos) == 1:
+                out = args.out
+            else:
+                base, ext = os.path.splitext(args.out)
+                out = '%s_%d%s' % (base, p, ext)
+        else:
+            out = os.path.join(HERE, 'out', 't%d.json' % p)
+        paths.append(out)
+
+    rc = 0
+    for p, out in zip(protos, paths):
+        shaped, issues, spec = render(p, args, simple, specgen.Spec, specgen.Issues)
+
+        d = os.path.dirname(os.path.abspath(out))
+        if d and not os.path.isdir(d):
+            os.makedirs(d)
+        with open(out, 'w', encoding='utf-8', newline='\n') as fh:
+            if args.pretty:
+                json.dump(shaped, fh, ensure_ascii=False, indent=1)
+                fh.write('\n')
+            else:
+                fh.write(json.dumps(shaped, ensure_ascii=False, separators=(',', ':')))
+                fh.write('\n')
+
+        packet = json.dumps(shaped, ensure_ascii=False, separators=(',', ':'))
+        plain = outer_plain(simple.SIMPLE_NAMES[p], packet, shaped['RequestId'])
+        rep, entry = spec_check.check_one(p, shaped, spec.raw, out)
+        off = official_meta(p)
+        wire_b = wire_len_for_plain(len(plain.encode('utf-8')))
+
+        def say(*a):
+            if not args.quiet:
+                print(*a)
+
+        say('=' * 78)
+        say('协议 %-6d %-22s spec观测=%s  confidence=%s'
+            % (p, entry['name'], entry['observations'], entry['confidence']))
+        say('输出文件      : %s' % out)
+        say('顶层键        : %d  ->  %s' % (len(shaped), list(shaped.keys())))
+        say('conform 记账  : %s%s'
+            % (issues.summary(),
+               '' if not (issues.dropped or issues.forced) else
+               '  !! ' + repr(issues.dropped + issues.forced)))
+        say('字节数(inner packet)  : %6d' % len(packet.encode('utf-8')))
+        say('字节数(outer plain)   : %6d' % len(plain.encode('utf-8')))
+        say('字节数(预测 wire)     : %6d   <- base64(AES(pad(plain))+32key)，即客户端收到的 body'
+            % wire_b)
+        if off:
+            say('官方实测(同口径)      : %6d   [%s] inner packet=%d outer plain=%d'
+                % (off['resp_bytes'], off['file'], off['packet_len'], off['plain_len']))
+            say('差值(预测 wire-官方)  : %+6d' % (wire_b - off['resp_bytes']))
+        else:
+            say('官方实测(同口径)      :    n/a  （没找到 %s）' % OFFICIAL_SAMPLE.get(p))
+
+        say('spec_check    : %s   FAIL %d / WARN %d'
+            % ('PASS' if not rep.fails else 'FAIL', len(rep.fails), len(rep.warns)))
+        for k, path, detail in rep.fails:
+            say('  FAIL [%s] %s  %s' % (k, path, detail))
+        for k, path, detail in rep.warns:
+            say('  WARN [%s] %s  %s' % (k, path, detail))
+            say('       解释: %s' % warn_text(p, k, path))
+        if rep.fails:
+            rc = 1
+        print('%d  %-22s %s  inner=%d B  wire=%d B  FAIL=%d WARN=%d  -> %s'
+              % (p, entry['name'], 'PASS' if not rep.fails else 'FAIL',
+                 len(packet.encode('utf-8')), wire_b, len(rep.fails), len(rep.warns), out))
+    return rc
+
+
+if __name__ == '__main__':
+    sys.exit(main())

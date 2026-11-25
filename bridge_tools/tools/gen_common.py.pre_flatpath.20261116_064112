@@ -1,0 +1,401 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""gen_common.py — deploy/ 下四个「反推 DTO + 生成响应」脚本共用的地基。
+
+被 gen3.py / gen8006.py / gen36001.py / gen90004.py 复用，本身不产生交付物。
+
+只读上游（绝不改写）：
+  * work/ba/proto/official_spec.json        结构权威（38 协议 / 109 条官方响应）
+  * work/ba/proto/spec_check.py             验收器（直接 import，不重写）
+  * report/_tmp/official_decoded_201/*.json 官方 201 条抓包（逐字节/结构比对基准）
+  * work/ba/data/ExcelDB.db                 只读打开的配置表（FlatBuffers 行）
+
+写死的口径（三条，都有独立证据，见各生成器的 --verify-official）：
+  1. ServerTimeTicks / ReceiveTick / EchoSendTick = .NET 100ns ticks（自 0001-01-01）
+     用官方 protocol 3 抓包反解：639304002554622705 / 1e7 s → 2026-11-16T04:30:55.46(+08)
+     与 meta.bj=04:30:55.625 相差 0.16 s，单位确认。
+     注意：CN 侧 **不截断到整秒**（Shittim 源码注释说官方是整秒，CN 抓包里不是）。
+  2. 时间字符串 = RFC3339Nano 风格，小数位尾零裁掉（官方同一字段出现过 0/2/3/9 位小数）
+  3. 顶层键序 = spec 的 top_key_order（protojson 按字段号升序输出 ⇒ 键序稳定）
+"""
+from __future__ import annotations
+
+import base64
+import datetime as _dt
+import hashlib
+import json
+import os
+import sqlite3
+import struct
+import sys
+import uuid
+
+# ---------------------------------------------------------------- 路径
+HERE = os.path.dirname(os.path.abspath(__file__))                 # work/ba/server/deploy
+ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))  # BAServer
+PROTO_DIR = os.path.join(ROOT, "work", "ba", "proto")
+SPEC_PATH = os.path.join(PROTO_DIR, "official_spec.json")
+DTO_EXTRA_DIR = os.path.join(PROTO_DIR, "dto_extra")
+EXCELDB_PATH = os.path.join(ROOT, "work", "ba", "data", "ExcelDB.db")
+DECODED_DIR = os.path.join(ROOT, "report", "_tmp", "official_decoded_201")
+
+# 官方 201 抓包里四个协议的样本文件（唯一证据源）
+OFFICIAL_FILES = {
+    "3": "04_3_api_networktime_sync.response.json",
+    "90004": "06_90004_api_management_data.response.json",
+    "8006": "09_8006_api_mission_guidemissionseasonlist.response.json",
+    "36001": "16_36001_api_notification_eventcontentreddotcheck.response.json",
+}
+
+DOTNET_EPOCH = _dt.datetime(1, 1, 1)
+
+
+# ================================================================ 时间
+def ticks_from_dt(dt):
+    """.NET 100ns ticks（自 0001-01-01），不截断。"""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+    delta = dt - DOTNET_EPOCH
+    return (delta.days * 86400 + delta.seconds) * 10_000_000 + delta.microseconds * 10
+
+
+def dt_from_ticks(ticks):
+    return DOTNET_EPOCH + _dt.timedelta(microseconds=ticks // 10)
+
+
+def fmt_time(dt, frac=3):
+    """RFC3339Nano 风格：小数位取 frac 位后**去掉尾零**（官方就是这么发的）。"""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+    s = "%04d-%02d-%02dT%02d:%02d:%02d" % (dt.year, dt.month, dt.day,
+                                          dt.hour, dt.minute, dt.second)
+    if frac:
+        ns = dt.microsecond * 1000
+        digits = ("%09d" % ns)[:frac].rstrip("0")
+        if digits:
+            s += "." + digits
+    return s
+
+
+def parse_time(s):
+    return _dt.datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+
+
+def utcnow():
+    return _dt.datetime.utcnow()
+
+
+# ================================================================ 账号 / 信封
+class Account(object):
+    """一个虚构账号：信封里 5 个基础字段的唯一来源。"""
+
+    def __init__(self, server_id, mxtoken, request_id, now, ticks=None):
+        self.server_id = int(server_id)
+        self.mxtoken = mxtoken
+        self.request_id = request_id
+        self.now = now                      # naive UTC
+        # 显式给 ticks 时不从 now 反算：100ns → µs 会丢最后 5 个 tick（官方值不是整 µs）
+        self.ticks = int(ticks) if ticks is not None else ticks_from_dt(now)
+
+    def session_key(self):
+        return {"AccountServerId": self.server_id, "MxToken": self.mxtoken}
+
+    def envelope(self, proto):
+        """官方 109/109 都在的 5 个基础字段，且顺序固定。"""
+        return {
+            "Protocol": int(proto),
+            "SessionKey": self.session_key(),
+            "ServerTimeTicks": self.ticks,
+            "ServerNotification": 0,
+            "RequestId": self.request_id,
+        }
+
+    @classmethod
+    def create(cls, server_id=99990000001, now=None, request_id=None, mxtoken=None,
+               ticks=None):
+        now = now or utcnow()
+        if now.tzinfo is not None:
+            now = now.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+        if request_id is None:
+            request_id = str(uuid.uuid4())
+        if mxtoken is None:
+            # 官方 MxToken 恒为 64 字符 base64（48 字节 → sha384 正好）
+            mxtoken = base64.b64encode(
+                hashlib.sha384(("ba-private-server:%d" % int(server_id)).encode()).digest()
+            ).decode("ascii")
+        return cls(server_id, mxtoken, request_id, now, ticks=ticks)
+
+
+# ================================================================ spec / spec_check
+class Spec(object):
+    def __init__(self, path=SPEC_PATH):
+        with open(path, "r", encoding="utf-8") as fh:
+            self.raw = json.load(fh)
+        self.protocols = self.raw["protocols"]
+
+    def entry(self, proto):
+        e = self.protocols.get(str(proto))
+        if e is None:
+            raise KeyError("official_spec.json 里没有协议 %s" % (proto,))
+        return e
+
+    def name(self, proto):
+        return self.entry(proto)["name"]
+
+    def observations(self, proto):
+        return self.entry(proto).get("observations")
+
+    def top_key_order(self, proto):
+        return list(self.entry(proto).get("top_key_order") or [])
+
+    def mandatory_top_keys(self, proto):
+        return list(self.entry(proto).get("mandatory_top_keys") or [])
+
+
+def load_spec_check():
+    """直接复用 work/ba/proto/spec_check.py —— 验收逻辑只有一份。"""
+    sys.dont_write_bytecode = True                     # 不在 proto/ 留 __pycache__
+    if PROTO_DIR not in sys.path:
+        sys.path.insert(0, PROTO_DIR)
+    import spec_check                                  # noqa: E402
+    return spec_check
+
+
+def check(proto, obj, spec=None):
+    """→ (fails, warns, entry)。fails 为空即 spec_check 判定 PASS。"""
+    spec = spec or Spec()
+    sc = load_spec_check()
+    rep, entry = sc.check_one(proto, obj, spec.raw, "<generated>")
+    return rep.fails, rep.warns, entry
+
+
+def order_like_spec(obj, proto, spec=None):
+    """按 spec 的 top_key_order 重排顶层键（官方键序 10/10 稳定）。"""
+    spec = spec or Spec()
+    order = spec.top_key_order(proto)
+    out = {}
+    for k in order:
+        if k in obj:
+            out[k] = obj[k]
+    for k in obj:                                      # spec 没列到的（理论上不存在）
+        if k not in out:
+            out[k] = obj[k]
+    return out
+
+
+# ================================================================ 官方抓包
+def official_inner(proto):
+    """读官方抓包里的已解密包体（spec_check 校验的就是它）。"""
+    fn = OFFICIAL_FILES[str(proto)]
+    path = os.path.join(DECODED_DIR, fn)
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)["inner"]
+
+
+def official_meta(proto):
+    fn = OFFICIAL_FILES[str(proto)]
+    with open(os.path.join(DECODED_DIR, fn), "r", encoding="utf-8") as fh:
+        return json.load(fh)["meta"]
+
+
+# ================================================================ 输出
+def compact(obj):
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def inner_bytes(obj):
+    """包体紧凑 JSON 的 UTF-8 字节数（与 wire 层 resp_bytes 不是一个数，别混）"""
+    return len(compact(obj).encode("utf-8"))
+
+
+def write_json(obj, path, pretty=True, wrap=False):
+    """pretty=True 缩进输出；wrap=True 包成 {"meta":…,"inner":…} 以兼容 spec_check --all。"""
+    d = os.path.dirname(os.path.abspath(path))
+    if d and not os.path.isdir(d):
+        os.makedirs(d)
+    if wrap:
+        payload = {"meta": {"generated_by": os.path.basename(sys.argv[0] or "?"),
+                            "inner_bytes": inner_bytes(obj)},
+                   "inner": obj}
+    else:
+        payload = obj
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        if pretty:
+            json.dump(payload, fh, ensure_ascii=False, indent=1)
+            fh.write("\n")
+        else:
+            fh.write(compact(payload))
+            fh.write("\n")
+    return os.path.getsize(path)
+
+
+def print_verdict(proto, obj, path, spec=None, extra=None):
+    """统一收尾：字节数 / 键数 / spec_check 结论 / 官方对照。返回 True = PASS。"""
+    import re as _re
+    spec = spec or Spec()
+    fails, warns, entry = check(proto, obj, spec)
+    size = os.path.getsize(path)
+    ib = inner_bytes(obj)
+    try:
+        om = official_meta(proto)
+        o_in = official_inner(proto)
+        o_ib = inner_bytes(o_in)
+        o_wire = om.get("resp_bytes")
+    except Exception:
+        o_ib = o_wire = None
+    cats = {}
+    for k, _p, _d in warns:
+        cats[k] = cats.get(k, 0) + 1
+
+    print("-" * 72)
+    print("协议 %-6s %-34s spec观测=%s" % (proto, entry["name"], entry["observations"]))
+    print("输出文件        : %s (%d bytes 落盘 / %d bytes 紧凑包体)"
+          % (os.path.basename(path), size, ib))
+    print("顶层键数        : %d (spec 必填 %d)  键序=%s"
+          % (len(obj), len(spec.mandatory_top_keys(proto)),
+             "spec" if list(obj.keys()) == [k for k in spec.top_key_order(proto) if k in obj] else "非spec"))
+    if o_ib is not None:
+        print("官方对照        : 紧凑包体 %d B / wire resp_bytes %d B"
+              % (o_ib, o_wire if o_wire is not None else -1))
+    if extra:
+        for k, v in extra.items():
+            print("%-16s: %s" % (k, v))
+    print("spec_check      : %s  FAIL %d / WARN %d %s"
+          % ("PASS" if not fails else "FAIL", len(fails), len(warns),
+             ("(%s)" % ", ".join("%s=%d" % kv for kv in sorted(cats.items()))) if cats else ""))
+    for k, p, d in fails[:25]:
+        print("  FAIL [%s] %s  %s" % (k, p, d))
+    # WARN 太多时按「路径模式」聚合，别刷屏（8006 一条就要报几百条可选键缺失）
+    if len(warns) <= 12:
+        for k, p, d in warns:
+            print("  WARN [%s] %s  %s" % (k, p, d))
+    else:
+        groups = {}
+        for k, p, d in warns:
+            pat = _re.sub(r"\[\d+\]", "[]", p)
+            groups.setdefault((k, pat), 0)
+            groups[(k, pat)] += 1
+        for (k, pat), n in sorted(groups.items(), key=lambda kv: -kv[1])[:12]:
+            print("  WARN [%s] %s  ×%d (可选/长度提示，合法)" % (k, pat, n))
+    return not fails
+
+
+def verify_official_bytes(proto, rebuilt):
+    """把「用官方输入的输入参数 → 我们构造器 → 输出」与官方包体逐字节比。
+
+    这条是整个 DTO 反推的硬证据：如果逐字节相同，说明键序/键集合/类型/省略规则
+    全部与官方一致，不是「看起来差不多」。
+    """
+    o_in = official_inner(proto)
+    a = compact(rebuilt).encode("utf-8")
+    b = compact(o_in).encode("utf-8")
+    if a == b:
+        print("官方逐字节复现 : PASS (%d B 完全相同)" % len(a))
+        return True
+    print("官方逐字节复现 : FAIL  我们 %d B / 官方 %d B" % (len(a), len(b)))
+    # 定位第一处差异
+    n = min(len(a), len(b))
+    i = 0
+    while i < n and a[i] == b[i]:
+        i += 1
+    lo = max(0, i - 60)
+    print("  首个差异 @%d" % i)
+    print("    ours: %r" % a[lo:i + 60])
+    print("    offi: %r" % b[lo:i + 60])
+    return False
+
+
+# ================================================================ dto_extra 校验
+def load_dto_extra(fn):
+    path = os.path.join(DTO_EXTRA_DIR, fn)
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def check_against_dto(proto, obj, dto):
+    """生成物 vs 反推 DTO：键集合与必填性必须一致（DTO 不只是文档）。"""
+    names = [f["name"] for f in dto["wire_fields"]]
+    required = [f["name"] for f in dto["wire_fields"] if f.get("required")]
+    got = list(obj.keys())
+    problems = []
+    extra = [k for k in got if k not in names]
+    missing = [k for k in required if k not in got]
+    if extra:
+        problems.append("多出 DTO 未定义的键: %r" % (extra,))
+    if missing:
+        problems.append("缺 DTO 必填键: %r" % (missing,))
+    if not problems and got != [k for k in names if k in got]:
+        problems.append("键序与 DTO 声明序不一致: %r vs %r"
+                        % (got, [k for k in names if k in got]))
+    print("DTO 交叉校验    : %s  (%d/%d 键)"
+          % ("PASS" if not problems else "FAIL", len(got), len(names)))
+    for p in problems:
+        print("  !! " + p)
+    return not problems
+
+
+# ================================================================ ExcelDB（只读）
+def fb_slot_int(blob, slot):
+    """FlatBuffers table 的标量 slot（只做 vtable 查表，不碰向量/字符串）。"""
+    try:
+        (root,) = struct.unpack_from("<I", blob, 0)
+        (soff,) = struct.unpack_from("<i", blob, root)
+        vt = root - soff
+        (vt_size,) = struct.unpack_from("<H", blob, vt)
+        off = 4 + 2 * slot
+        if off + 2 > vt_size:
+            return None
+        (vtoff,) = struct.unpack_from("<H", blob, vt + off)
+        if vtoff == 0:
+            return None
+        (val,) = struct.unpack_from("<i", blob, root + vtoff)
+        return val
+    except Exception:
+        return None
+
+
+class ExcelDB(object):
+    def __init__(self, path=EXCELDB_PATH):
+        self.path = path
+        self._con = None
+
+    @property
+    def con(self):
+        if self._con is None:
+            if not os.path.isfile(self.path):
+                raise SystemExit("ExcelDB 不存在: %s" % self.path)
+            uri = "file:%s?mode=ro" % self.path.replace("\\", "/")
+            self._con = sqlite3.connect(uri, uri=True)
+        return self._con
+
+    def close(self):
+        if self._con is not None:
+            self._con.close()
+            self._con = None
+
+    def ids(self, table, key_col="Id"):
+        return [int(r[0]) for r in self.con.execute(
+            'SELECT "%s" FROM "%s" ORDER BY "%s"' % (key_col, table, key_col))]
+
+    def blobs(self, table, key_col="Id"):
+        for k, b in self.con.execute('SELECT "%s","Bytes" FROM "%s"' % (key_col, table)):
+            yield int(k), b
+
+
+# ================================================================ CLI 公共
+def add_common_args(ap, default_out):
+    ap.add_argument("--server-id", type=int, default=99990000001, help="账号 AccountServerId")
+    ap.add_argument("--now", default=None, help="固定时间（UTC，YYYY-MM-DDTHH:MM:SS）")
+    ap.add_argument("--request-id", default=None, help="不传 = uuid4")
+    ap.add_argument("--mxtoken", default=None, help="不传 = 由 server_id 派生 64 字符 base64")
+    ap.add_argument("--out", default=default_out, help="输出文件")
+    ap.add_argument("--compact", action="store_true", help="紧凑 JSON（默认缩进）")
+    ap.add_argument("--wrap", action="store_true", help='包成 {"meta":…,"inner":…}')
+    ap.add_argument("--no-dto-check", action="store_true", help="跳过 dto_extra 交叉校验")
+    return ap
+
+
+def account_from_args(args):
+    now = parse_time(args.now) if getattr(args, "now", None) else None
+    return Account.create(args.server_id, now=now,
+                          request_id=args.request_id, mxtoken=args.mxtoken)

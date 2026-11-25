@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "groups": {
+    "Normal": { "ssrThreshold": 30, "srRate": 185 },
+    "Pickup": { "upSsrRate": 7, "ssrThreshold": 23, "srRate": 185 },
+    "Limited": { "upSsrRate": 7, "ssrThreshold": 23, "srRate": 185 },
+    "Fes": { "upSsrRate": 7, "fesSsrRate": 9, "ssrThreshold": 44, "srRate": 185 }
+  }
+}

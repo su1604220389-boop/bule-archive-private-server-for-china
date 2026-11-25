@@ -1,0 +1,431 @@
+{
+  "_meta": {
+    "generated_at": "2026-11-16",
+    "project": "BA 国服私服 — 新号初始状态规则（多用户：每个卡密一个独立账号）",
+    "author": "subagent: initial-state recon",
+    "purpose": "回答「一个全新账号应该有什么」，每一条都给可复核证据；找不到就写未找到，不猜。",
+    "hard_rule": "本文件里的所有 initial 值都来自游戏自带数据表，没有任何一条抄自某个现成账号的快照（官方抓包只当『反证/交叉核对』用）。",
+
+    "key_discovery": {
+      "conclusion": "初始状态规则**不在** ExcelDB.db 里，在 Excel.zip 的 77 个 *.bytes 里。",
+      "detail": [
+        "ExcelDB.db（398 张 XxxDBSchema，153 MB，明文 SQLite）是『服务端会同步的配置表』：Character/Item/Equipment/Shop/Academy/Cafe/Mission... 全表名里 **没有任何** Initial / Default / Start / Newbie / Tutorial-reward 类表（398 个表名全量核过）。",
+        "Excel.zip（77 个 *exceltable.bytes）里有正好 5 张 Default* 表 + 1 张 ConstCommonExcel，就是新手初始化规则：",
+        "  defaultcharacterexceltable.bytes   312 B   4 行  → 初始角色（Q1/Q2）",
+        "  defaultechelonexceltable.bytes     112 B   1 行  → 初始编队（Q5）",
+        "  defaultparcelexceltable.bytes      744 B  25 行  → 初始货币/道具/称号（Q3/Q4）",
+        "  defaultfurnitureexceltable.bytes   392 B  11 行  → 咖啡厅初始家具（Q9）",
+        "  defaultmailexceltable.bytes        176 B   1 行  → 初始邮件（字段语义部分未定）",
+        "  constcommonexceltable.bytes       1720 B   1 行 / 191 字段 → 新手常量（TutorialCharacterDefaultCount=4 等）",
+        "另：constnewbiecontentexceltable.bytes / couponstuffexceltable.bytes / cleardeckruleexceltable.bytes 也在包里，与本 10 问无关。"
+      ]
+    },
+
+    "how_initial_values_were_derived": {
+      "decode_method": "FlatBuffers 无 schema 反射：root uoffset → table → i32 soffset → vtable → 逐字段 offset；每字段试 uoffset(string/table/vector)，其余按 i32；整表逐字段投票定型。**soffset 必须按有符号处理**（vtable 去重时后面的表引用『表之后』的 vtable，soffset 为负），否则 DefaultParcel 25 行里 6 行解错、DefaultCharacter 4 行里 3 行解不出。",
+      "field_names": "字段名不是猜的：`work\\ba\\audit\\ba-apk\\out\\metadata-strings.txt` 是 il2cpp metadata 的字符串表，`CreateDefaultCharacterExcel` 后面紧跟 `AddCharacterId / AddFavoriteCharacter / AddLevel / AddExp / AddFavorExp / AddFavorRank / AddStarGrade / AddExSkillLevel / AddPassiveSkillLevel / AddExtraPassiveSkillLevel / AddCommonSkillLevel / AddLeaderSkillLevel` 共 12 个 Add*，与解码出的 12 个 slot 数量完全对上（行 62318-62339）。ConstCommonExcel 同理，191 个 Add* ↔ 191 个 slot（行 61105-61898）。",
+      "tools_used": [
+        "sqlite3 (python stdlib, `file:...?mode=ro` 只读打开，全程未写入)",
+        "work/ba/data/dump_table.py（本次新写，通用解码器：--table / --bytes / --fields，见 Q&A 末尾）",
+        "work/ba/data/fb_dump.py（已有，用于 Excel.zip 的粗解；其 soffset 与标量判定偏弱，Default* 表以 dump_table.py 结果为准）"
+      ],
+      "reference_only": "report\\_tmp\\official_decoded_201\\ 的 1017 / 24000 / 1005 / 4000 响应只作为『反证 + 交叉核对』，不用来填值。"
+    },
+
+    "table_inventory": {
+      "exceldb_tables": 398,
+      "exceldb_rows": 707896,
+      "zip_bytes_tables": 77,
+      "relevant_exceldb_tables": [
+        "TutorialDBSchema(33)", "TutorialCharacterDialogDBSchema(303)", "CurrencyDBSchema(29)",
+        "ShopRecruitDBSchema(532)", "ShopDBSchema(7908)", "ShopInfoDBSchema(18)",
+        "CafeInfoDBSchema(2)", "CafeRankDBSchema(20)", "CafeProductionDBSchema(30)",
+        "AcademyLocationDBSchema(11)", "AcademyLocationRankDBSchema(12)", "AcademyZoneDBSchema(95)",
+        "AcademyTicketDBSchema(5)", "AcademyFavorScheduleDBSchema(1053)",
+        "CharacterDBSchema(7223)", "ItemDBSchema(1803)", "EquipmentDBSchema(191)",
+        "FurnitureDBSchema(876)", "EmblemDBSchema(1065)", "EchelonConstraintDBSchema(4)",
+        "OpenConditionDBSchema(54)", "AccountLevelRewardDBSchema(6)", "ScenarioModeDBSchema(581)"
+      ],
+      "absent_in_exceldb": [
+        "DefaultCharacterExcel", "DefaultEchelonExcel", "DefaultParcelExcel",
+        "DefaultFurnitureExcel", "DefaultMailExcel", "ConstCommonExcel", "ConstNewbieContentExcel"
+      ]
+    },
+
+    "confidence_note": "confidence 分 high / medium / low / 未找到。high = 有静态规则表 + 官方抓包双重互证；medium = 有规则表但语义靠枚举值反推；未找到 = 明确写在 not_found 里，没有填任何编造值。"
+  },
+
+  "q1_characters": {
+    "question": "新号初始角色是哪几个？",
+    "confidence": "high",
+    "rule": "初始角色 = `defaultcharacterexceltable.bytes` 的全部行（4 行），每行的 `CharacterId` 就是一个初始角色。与 `ConstCommonExcel.TutorialCharacterDefaultCount` 互证。不是 CharacterDBSchema 的筛选结果，不是从现成账号抄。",
+    "initial": [
+      {"UniqueId": 13010, "name_cn": "优香", "StarGrade": 2},
+      {"UniqueId": 16003, "name_cn": "铃美", "StarGrade": 1},
+      {"UniqueId": 13003, "name_cn": "莲见", "StarGrade": 2},
+      {"UniqueId": 26000, "name_cn": "千夏", "StarGrade": 1}
+    ],
+    "evidence": [
+      "规则表：`Excel.zip!defaultcharacterexceltable.bytes`（312 字节）。root→rows=4 个 table；slot f0 = CharacterId，值精确为 {13003, 13010, 16003, 26000}（dump_table.py --bytes ... --fields CharacterId,... 复现）。",
+      "交叉校验：同一包里 `constcommonexceltable.bytes` 的第 64 个 Add 字段 `TutorialCharacterDefaultCount` = **4**，与 4 行完全一致。",
+      "反证（官方抓包只作参照）：`02_1017_...response.json` → `CharacterListResponse.CharacterDBs` 46 条里，13010 / 16003 / 13003 / 26000 四条**全部还在**，且 StarGrade 仍为 2 / 1 / 2 / 1 —— 说明这 4 个是账号最早拥有、从未被移除的角色。",
+      "排除法：ExcelDB.db 398 张表里没有 Initial/Default/Start/Newbie 类表；`CharacterDBSchema`(7223 行) 里也没有任何『是否初始赠送』的布尔字段（全表 slot 投票后无此语义字段）。",
+      "名字来源：`work\\ba\\proto\\ids.json` → students[13010]=优香, [16003]=铃美, [13003]=莲见, [26000]=千夏。"
+    ]
+  },
+
+  "q2_initial_stats": {
+    "question": "初始星级/等级/技能等级各是多少？",
+    "confidence": "high",
+    "rule": "逐角色读 `DefaultCharacterExcel` 的 12 个字段：CharacterId / FavoriteCharacter / Level / Exp / FavorExp / FavorRank / StarGrade / ExSkillLevel / PassiveSkillLevel / ExtraPassiveSkillLevel / CommonSkillLevel / LeaderSkillLevel。表里缺省的字段 = FlatBuffers 默认值 0。",
+    "initial": {
+      "Level": 1,
+      "Exp": 0,
+      "FavorRank": 1,
+      "FavorExp": 0,
+      "ExSkillLevel": 1,
+      "PassiveSkillLevel": 1,
+      "ExtraPassiveSkillLevel": 1,
+      "CommonSkillLevel": 1,
+      "LeaderSkillLevel": 1,
+      "StarGrade_by_character": {"13010": 2, "16003": 1, "13003": 2, "26000": 1},
+      "FavoriteCharacter": "未确定",
+      "note_favorite": "**未确定**（原判『只有 13003 = true』置信度不足，已撤回）。`DefaultCharacterExcel` 该行 slot1 的原始 u32 = 257 = 0x0101（两个相邻字节都是 1），更像『两个 1 字节 bool 字段连排』，因此无法确定 4 字节里哪一个是 FavoriteCharacter；且官方 1017 里这 4 个角色的 `IsFavorite` **全部为 false**（含 13003），与旧推断冲突。落地时该布尔值请自行决定（官方数据是 false）；`server_apply_skeleton` 里 13003 的 `IsFavorite: true` 沿用旧推断，未经验证。"
+    },
+    "evidence": [
+      "`defaultcharacterexceltable.bytes` 逐行解码（4 行）：13010 → Level=1, FavorRank=1, StarGrade=2, 4 个技能等级=1；16003 → Level=1, StarGrade=1, 技能=1；13003 → Level=1, StarGrade=2, 技能=1（另有 slot1 原始 u32=257=0x0101，字段归属未确定，见 note_favorite）；26000 → Level=1, StarGrade=1, 技能=1。Exp / FavorExp 两 slot 在 4 行里都没写 → 默认 0。",
+      "强反证：官方 1017 里这 4 个角色的 `ExSkillLevel / PassiveSkillLevel / ExtraPassiveSkillLevel / PublicSkillLevel` **至今仍是 1**，星级仍是 2/1/2/1 —— 该玩家从没升过技能/升过星，所以这几项就是初始值本身。唯一被改动的是 Level（27 / 3 / 30 / 30）和千夏的 FavorRank（1→2）。",
+      "字段名出处：`work\\ba\\audit\\ba-apk\\out\\metadata-strings.txt` 行 62318-62339（CreateDefaultCharacterExcel → AddCharacterId … AddLeaderSkillLevel，12 个）。",
+      "等级上限参考（不是初始值，别混）：`ConstCommonExcel.CharacterMaxLevel`=90、`AccountMaxLevel`=90、`ExSkillLevelMax`=5、`PublicSkillLevelMax`=10、`PassiveSkillLevelMax`=10、`ExtraPassiveSkillLevelMax`=10；`CharacterLevelDBSchema` 90 行（1..90）。"
+    ]
+  },
+
+  "q3_initial_items": {
+    "question": "初始道具（ItemDBs）有哪些、各多少个？",
+    "confidence": "high（规则表）/ medium（ParcelType=4→Item 的枚举值靠外部核对）",
+    "rule": "初始物品 = `DefaultParcelExcel` 里 ParcelType=4(Item) 的行。整张表 25 行只按 ParcelType 分三类：2=Currency（19 行）、4=Item（1 行）、20=Emblem（5 行）。没有别的道具来源。",
+    "initial": {
+      "ItemDBs": [{"Type": 4, "ItemId": 2, "ItemName": "加速券", "amount": 5}],
+      "EmblemDBs": [
+        {"Type": 20, "UniqueId": 1, "amount": 1},
+        {"Type": 20, "UniqueId": 2, "amount": 1},
+        {"Type": 20, "UniqueId": 3, "amount": 1},
+        {"Type": 20, "UniqueId": 4, "amount": 1},
+        {"Type": 20, "UniqueId": 5, "amount": 1}
+      ],
+      "EquipmentDBs": [],
+      "note": "没有任何装备/家具/角色通过 Parcel 发放；家具走 DefaultFurnitureExcel（见 q9），角色走 DefaultCharacterExcel（见 q1）。"
+    },
+    "evidence": [
+      "规则表：`Excel.zip!defaultparcelexceltable.bytes`（744 字节，25 行）。手工校验过原始字节：每行 table 的 slot0 是 4 字节 ParcelType，紧随的 4 字节就是 ParcelId 的低 32 位，slot2 是 8 字节 ParcelAmount（例如 row0 `pos=0x2d0`：type=2, id=1, amount=10000；row7 `pos=0x208`：type=4, id=2, amount=5）。",
+      "ParcelType 枚举值出处（**不在** ExcelDB 里，是本仓库已实测过的结论）：`_intel_ba_sniff_FINDINGS.md` —— 『`MX.Data.LocalizeEtcData.GetName(FlatData.ParcelType, System.Int64)` … **ParcelType: Character=1, Equipment=3, Item=4**』，并给了实测 `GetName(4,23)→\"Eligma\"`、`GetName(3,1000)→\"Plain Baseball Cap\"`。据此 ParcelType=4 = Item。",
+      "ParcelType=20 = Emblem 的直接证据：官方 1017 `AttachmentEmblemListResponse.EmblemDBs` 14 条，**每条的 `Type` 都是 20**，UniqueId 依次 1,2,3,4,5,1011020,…，即前 5 个正是本表发放的 1..5。另有 `AttachmentGetResponse.AccountAttachmentDB.EmblemUniqueId = 1`，与 `ConstCommonExcel.EmblemDefaultId = 1` 一致。",
+      "为什么不能拿 1017 的 null 反推『新号没道具』（原第 4 条写错，已更正）：只有 **1017 内嵌的** `ItemListResponse` 是 null（键存在、值为 null，官方实测）；`03_4000_api_item_list.response.json` **根本没有 `ItemListResponse` 这个键**——它的顶层只有 `ItemDBs`（**134 条**）+ `ExpiryItemDBs`，其中 `{Type:4, UniqueId:2, StackCount:10}` 说明该号手上有 **10 张**加速券，并不是『已消耗完』。所以 1017 的 null 只表示那个子响应没带这个字段，**不能反推新号没有道具**；初始道具仍以 `DefaultParcelExcel` 为准（ItemId=2 ×5）。",
+      "Item 名字：`ids.json` → items[2]=加速券；`ItemDBSchema` Id=2 图标 `UIs/01_Common/03_NonEquipment/Item_Icon_CraftSkipItem`（与 ids.json 一致）。"
+    ]
+  },
+
+  "q4_initial_currencies": {
+    "question": "初始货币与数量（Credits/Pyreoxene/Gem… 28 种 CurrencyTypes）",
+    "confidence": "high",
+    "rule": "初始货币 = `DefaultParcelExcel` 里 ParcelType=2(Currency) 的 19 行，ParcelId 就是 `CurrencyDBSchema.ID`（1..29），ParcelAmount 是数量。这 19 行的实际构成是 **16 行非零 + 3 行显式 0（18/28/29）**；另有 **10 个 Id 完全不发放**（2/4/9–16）。正确口径是 **19 行发放（16 非零 + 3 零）+ 10 个不发放 = 29**，『19 种有值 + 10 种为 0』的概括不准确。不发放的 10 个也必须出现在 CurrencyDict 里且值为 0（见 evidence 第 4 条）。",
+    "initial": {
+      "granted": {
+        "1": 10000, "3": 600, "5": 24, "6": 3, "7": 5, "8": 3,
+        "17": 3, "18": 0, "19": 40, "20": 40, "21": 40,
+        "22": 6, "23": 6, "24": 1, "25": 1, "26": 1, "27": 1, "28": 0, "29": 0
+      },
+      "zero_by_default": ["2", "4", "9", "10", "11", "12", "13", "14", "15", "16"],
+      "names": {
+        "1": "信用积分", "2": "青辉石", "3": "青辉石", "4": "青辉石", "5": "行动点",
+        "6": "日程券", "7": "战术对抗赛挑战券", "8": "总力战挑战券", "17": "战术测试挑战券",
+        "18": "熟练证书", "19": "联合行动挑战券", "20": "联合行动挑战券 ω", "21": "联合行动挑战券 ψ",
+        "22": "悬赏通缉挑战券", "23": "学院交流会挑战券", "24": "大决战（轻装甲）挑战券",
+        "25": "大决战（重装甲）挑战券", "26": "大决战（特殊装甲）挑战券",
+        "27": "（ids.json 缺此项，CurrencyDBSchema 有 ID=27 但未取到中文名）",
+        "28": "1号店招待券", "29": "2号店招待券"
+      },
+      "note_amount_zero": "**18/28/29 这 3 行**在 BLOB 里 **没有 ParcelAmount 字段**（table size 只有 16 字节；其余 22 行为 24 或 30 字节，25 行分布 = 20×24B + 2×30B + 3×16B）。FlatBuffers 写入时会省略等于默认值的字段，所以这 3 行是显式的 0 —— 即『把这几种货币登记出来但发 0 个』。ParcelId=**1** 的行是 24 字节且 `ParcelAmount=10000`，**不是** 0（原写法把它一并算进『16 字节、无该字段』是错的）。"
+    },
+    "evidence": [
+      "规则表：`Excel.zip!defaultparcelexceltable.bytes` 19 行 ParcelType=2（其余 1 行 type=4、5 行 type=20）。",
+      "ID 空间对齐：`ExcelDB.db!CurrencyDBSchema` 恰好 29 行，SQL 主键 ID 就是 1..29（`SELECT ID FROM CurrencyDBSchema ORDER BY ID` 结果 = [1..29]），与 ParcelId 的取值域完全一致，且与官方 `CurrencyDict` 的键集合完全一致。",
+      "11 项精确命中（这是最强的一条）：默认值 vs 官方正式号 → 8:3/3、17:3/3、19:40/40、20:40/40、21:40/40、22:6/6、23:6/6、24:1/1、25:1/1、26:1/1、27:1/1，11 个一模一样；另外 7:5→4（花了 1 张）、6:3→0（花了 3 张）也自洽。剩下的 **1/3/4/5/18** 是该号后来赚的（28242189 / 5438 / 5438 / 962 / 9060）—— 其中货币 4 也不在发放表里（1017 CurrencyDict 键 4 = 5438），原写法漏了它。",
+      "CurrencyDict 必须含有全部 key：官方 1017 `AccountCurrencySyncResponse.AccountCurrencyDB.CurrencyDict` 的键是 `\"1\"..\"29\"` 共 29 个。其中值为 0 的是 **12 个**：`2/6/9/10/11/12/13/14/15/16/28/29`（6 是该号花光的；2/9–16 是本来就未发放的），非零 17 个。所以序列化时不能只写发放的 19 个。",
+      "28 vs 29 的口径问题：`ids.json.currencies` 只有 28 条（1..26, 28, 29，缺 27），而 `CurrencyDBSchema` 有 29 行 —— 任务描述里的『28 种 CurrencyTypes』是 ids.json 的口径，实际 ID 空间是 1..29。"
+    ]
+  },
+
+  "q5_initial_echelons": {
+    "question": "初始编队（Echelon）几条、每条的槽位布局",
+    "confidence": "high",
+    "rule": "新号只有 **1 条** EchelonDB：EchelonType=1 / EchelonNumber=1 / ExtensionType=0。槽位固定 4 个主槽 + 2 个支援槽（+3 个 SkillCardMulliganCharacterIds + 6 个 CombatStyleIndex）。主槽前 3 格填 优香/铃美/莲见、第 4 格空(0)；支援槽第 1 格填千夏、第 2 格空(0)；Leader=优香。",
+    "initial": {
+      "count": 1,
+      "echelon": {
+        "EchelonType": 1,
+        "EchelonNumber": 1,
+        "ExtensionType": 0,
+        "LeaderServerId": "13010 的 CharacterDB.ServerId（初始编队表写的是 CharacterUniqueId，落库时要换成 ServerId）",
+        "LeaderCharacterUniqueId": 13010,
+        "MainSlotCharacterUniqueIds": [13010, 16003, 13003],
+        "MainSlotServerIds": ["<13010 的 ServerId>", "<16003 的 ServerId>", "<13003 的 ServerId>", 0],
+        "SupportSlotCharacterUniqueIds": [26000],
+        "SupportSlotServerIds": ["<26000 的 ServerId>", 0],
+        "TSSInteractionServerId": 0,
+        "UsingFlag": 0,
+        "SkillCardMulliganCharacterIds": [0, 0, 0],
+        "CombatStyleIndex": [0, 0, 0, 0, 0, 0]
+      }
+    },
+    "evidence": [
+      "规则表：`Excel.zip!defaultechelonexceltable.bytes`（112 字节，1 行）。字段名来自 metadata 行 62340-62382：`EchlonId / LeaderId / MainId[] / SupportId[] / TssId`。",
+      "逐字节手工核对（因为默认解码器会把 int64 向量读成 4 字节）：root=0x0C → 行 table 在 0x28，vtable 在 0x1C（vt_size=12, tbl_size=28, 字段 offset = 4/16/8/12）；`EchlonId`@0x2C=1，`LeaderId`@0x38（int64）=13010，`MainId`@0x30 → uoffset=36 → 0x54：cnt=3 后跟着 3 个 int64 = [13010, 16003, 13003]，`SupportId`@0x34 → uoffset=16 → 0x44：cnt=1，值=26000。",
+      "槽位布局的反证/参照（官方 1017 `EchelonListResponse.EchelonDBs` 8 条，每条形状一致）：`{EchelonType, EchelonNumber, ExtensionType, LeaderServerId, MainSlotServerIds[4], SupportSlotServerIds[2], TSSInteractionServerId, UsingFlag, SkillCardMulliganCharacterIds[3], CombatStyleIndex[6]}`。所以『主槽 4 + 支援槽 2』是客户端认的固定形状，初始表只给了 3+1 个非零值，剩余槽必须补 0 而不是缩短数组。",
+      "那 8 条不是初始值（不要抄）：类型分布 = type1 号1、type2 号1、type3 号1、type4 号1、type6 号1、type11 号1、type1 号2、type1 号3 —— 是多内容解锁后累积的（type2=战术对抗赛、type3/4=总力战/大决战、type6=TSS、type11=活动）。新号只应创建 DefaultEchelonExcel 给出的 EchlonId=1 这一条。",
+      "ConstCommonExcel 里和编队相关但**不是**初始条数的字段：`FormationPresetNumberOfEchelon`=5、`FormationPresetNumberOfEchelonTab`=[5,8,8,30,33]、`FormationPresetRecentNumberOfEchelon`=5、`EchelonConstraintDBSchema` 4 行（GroupId 10002/10003/99999）—— 这些是『编队预设槽位』和『编队约束』，不是账号初始编队条数。",
+      "未解出：`EchelonConstraintDBSchema` 的 4 行（GroupId 10002 两行 f4=1/2、10003 一行 f7=2、99999 一行 f2=[13010,13003]）语义未确认，未用于本结论。"
+    ]
+  },
+
+  "q6_scenario_progress": {
+    "question": "剧情进度起点（ScenarioHistoryDBs 初始应为空还是有默认）",
+    "confidence": "medium-high（『初始为空』这一条 high；序章是否落库这一条 medium）",
+    "rule": "新号 `ScenarioHistoryDBs = []`（空数组），`ScenarioGroupHistoryDBs = []`，`ScenarioCollectionDBs = []`。序章由 `ConstCommonExcel.PrologueScenarioID01=11000 / PrologueScenarioID02=11002` 指定，但**不写进 ScenarioHistoryDBs**（见 evidence 第 2 条），所以不要在初始化时预置这两条。",
+    "initial": {
+      "ScenarioHistoryDBs": [],
+      "ScenarioGroupHistoryDBs": [],
+      "ScenarioCollectionDBs": [],
+      "prologue_scenario_ids": [11000, 11002]
+    },
+    "evidence": [
+      "官方 1017 `ScenarioListResponse.ScenarioHistoryDBs` = 191 条，**最小 ScenarioUniqueId = 11010**（Vol.1 第 1 章），最大 41200；`ScenarioGroupHistoryDBs` = 21 条（ScenarioGroupUniqueId 101/200/209/300/400/500/700/1301001/10044005…）。这 191 条是『玩过的号』的真实进度，新号必须从空开始。",
+      "序章不进 history 的关键证据：`ConstCommonExcel.PrologueScenarioID01=11000`、`PrologueScenarioID02=11002`（constcommonexceltable.bytes 第 60/61 个 Add 字段），而官方那 191 条里 **11000 和 11002 都不存在**（已用 `11000 in hist` / `11002 in hist` 实测为 False）。说明序章是教程内的一次性播放，不写 ScenarioHistoryDB。",
+      "ExcelDB.db 里没有任何 Default/Initial Scenario 表：`ScenarioModeDBSchema`(581) 是模式配置、`ScenarioScriptDBSchema`(362158) 是剧本正文、`ScenarioModeRewardDBSchema`(630) 是模式奖励，都不含『账号初始已解锁剧情』。",
+      "官方 `ScenarioGroupHistoryDBs` 的 `ScenarioType` 取值（8/2/3/5/7/11/4/6）和 `EventContentId`（0 或 846）说明 group history 也是进度累积，不是初始配置。"
+    ]
+  },
+
+  "q7_tutorials": {
+    "question": "教程列表（官方 1017 里 TutorialIds = [1..14,16,17,19,21,22,23,27]）—— 这是『全解锁后』还是『初始』？",
+    "confidence": "high",
+    "rule": "`TutorialIds` 是『**已完成/已播放过**的教程进度表』，不是『全部教程』也不是『初始』。所以官方那 21 条是该号的进度；**新号初始 TutorialIds = []**。`TutorialDBSchema` 只是教程定义表（33 行 = 27 个基础教程 ID 1..27 + 6 个活动教程 ID 1011301..1031306），不含任何进度。",
+    "initial": {"TutorialIds": []},
+    "evidence": [
+      "TutorialDBSchema 33 行，SQL 主键 ID = {1..27} ∪ {1011301, 1011302, 1011303, 1021304, 1031305, 1031306}（已全量列出）。后 6 行同时带 f4 = 自身 ID，且都不在 ID 1..27 的连号段里 → 属活动教程。",
+      "官方 1005 `Account_GetTutorial` 返回 21 条：[1-14, 16, 17, 19, 21, 22, 23, 27]，是基础 27 条的**真子集**，缺 15 / 18 / 20 / 24 / 25 / 26。既然不是全集，就只能是进度（玩家没触发过这 6 个 UI 教程）。",
+      "1005 的请求体（`07_1005_api_account_gettutorial.request.json`）只有 SessionKey 和基础信封字段，没有任何『要哪些教程』的参数 → 服务端返回的是该账号的状态。",
+      "TutorialDBSchema 的语义是『在哪几个 UI 上播哪几段引导』：每行 `f5` = UI 名向量（UIScenarioNew / UIBattle / UIGacha / UILobby / UICafe / UIArena / UIRaidLobby …），`f6` = 引导图/文本名向量（Tutorial_01…Tutorial_08）；4 行还带字符串 key：ID=1 `tutorial_first`、ID=3 `Tutorial_gacha`、ID=4 `tutorial_complete`。这些都是播放脚本，不是账号状态。",
+      "顺带：`TutorialCharacterDialogDBSchema`(303 行) 是教程里角色对白，`TutorialFailureImageDBSchema`(426) 是失败提示图，都跟进度无关。"
+    ]
+  },
+
+  "q8_academy": {
+    "question": "学院 AcademyLocationDBs 初始应有几条、Rank/Exp 初值；为什么官方 9 条而 ExcelDB 11 条（多 14、18）",
+    "confidence": "Rank/Exp 初值 = high；『初始几条』= 未找到；『为什么差 2 条』= 未找到（给了 2 个有证据的候选解释）",
+    "rule": "**Rank/Exp 初值**：Rank=1、Exp=0。**条数**：未找到确定规则。**14/18 缺失原因**：未找到确定规则。",
+    "initial": {
+      "Rank": 1,
+      "Exp": 0,
+      "location_count": "未找到",
+      "suggested_minimum": {
+        "note": "工程上可用的最小实现（**待与官方对齐验证，不是查出来的定值**）",
+        "AcademyLocationDBs": [{"LocationId": 1, "Rank": 1, "Exp": 0}]
+      },
+      "all_11_locations": [
+        {"LocationId": 1, "prefab": "Academy/Location_SchaleOffice", "in_official": true},
+        {"LocationId": 7, "prefab": "Academy/Location_SchaleResidence", "in_official": true},
+        {"LocationId": 11, "prefab": "Academy/Location_Gehenna", "in_official": true},
+        {"LocationId": 12, "prefab": "Academy/Location_Abydos", "in_official": true},
+        {"LocationId": 13, "prefab": "Academy/Location_Millennium", "in_official": true},
+        {"LocationId": 14, "prefab": "Academy/Location_Trinity", "in_official": false},
+        {"LocationId": 15, "prefab": "Academy/Location_RedWinter", "in_official": true},
+        {"LocationId": 16, "prefab": "Academy/Location_Hyakkiyako", "in_official": true},
+        {"LocationId": 17, "prefab": "Academy/Location_DU_Shiratori", "in_official": true},
+        {"LocationId": 18, "prefab": "Academy/Location_Shanhaijing", "in_official": false},
+        {"LocationId": 19, "prefab": "Academy/Location_Haruhabara", "in_official": true}
+      ]
+    },
+    "evidence": [
+      "ExcelDB 侧：`AcademyLocationDBSchema` 11 行，SQL 主键 Id = 1,7,11,12,13,14,15,16,17,18,19（不是 1..11，注意）。f2 = Location 预制体名（上表已列），f3 = 大图路径，f7 = 地名文本 id（60000/60004/60018/4000..4070 段），**f8 全表恒为 1** → 默认/初始 Rank=1（dump_academy.py 的结论一致），静态表无 per-location 经验字段 → 初始 Exp=0。",
+      "Rank 阈值表（不是初值，是升级曲线）：`AcademyLocationRankDBSchema` 12 行，Rank 1..12，ExpDelta = 100/250/450/750/1150/1600/2100/2700/3400/4100/4800/(无)，ExpTotal = 100..21400。",
+      "官方侧：`01_24000_api_academy_getinfo.response.json` → `AcademyLocationDBs` **9 条**，逐条为 (1,R2,E0) (7,R1,E0) (11,R1,E0) (12,R2,E0) (13,R1,E0) (15,R1,E0) (16,R2,E0) (17,R2,E0) (19,R2,E200)。缺 **14 (Trinity)** 和 **18 (Shanhaijing)**。",
+      "为什么差 2 条 —— 未找到确定规则。两条有证据的候选解释（都无法从数据闭合，仅列出）：",
+      "  候选 A『客户端数据比国服服务端新』：`AcademyZoneDBSchema` 的 zone 按 location 分组为 {1:8, 7:7, 11..19 各 8, **20:8**} —— 即客户端装了 location **20** 的 zone，而 20 根本不在 `AcademyLocationDBSchema` 里（orphan）。说明这份客户端表比国服服务端实际启用的内容多，14/18 可能同理属于『客户端有素材、国服没开』。",
+      "  候选 B『AcademyLocationDB 按首次进入创建』：24000 里 location 19 的 Exp=200 而其余全是 0，说明每行是独立进度而非全局配置；没访问过的地点就没有行。统计上 9 条里 7 个学校有行、2 个学校没有，与『访问过才有』并不冲突。",
+      "排除法：`AcademyLocationDBSchema` 里没有 open-condition 字段（只有 f4/f5 两个长度 ≤1 的可选向量和恒为 4 的 f6）；`OpenConditionDBSchema`(54 行) 是按 `OpenConditionContentType` 索引的内容解锁表（UIShop/UIGacha/UICafe/UIAcademyLobby/UIArena…），**不含** per-academy-location 的解锁条件。所以『14/18 需要什么条件才解锁』在数据里查不到。",
+      "⚠️ 陷阱（别被带偏）：官方 1017 的 `AccountCurrencySyncResponse.AccountCurrencyDB.AcademyLocationRankSum = 1`，而 24000 实测 9 条 Rank 之和 = 2+1+1+2+1+1+2+2+2 = **14**，两者矛盾。**该字段与 24000 冲突、语义未知，不要用它（也不要用 1 或 14 中的任何一个）去推『新号有几个地点』**。原写法把这个 1 解释成『1017 内嵌子响应大多是默认值模板』，该解释**不成立**：默认的只是**信封**（`Protocol:0 / SessionKey 空 / ServerTimeTicks:0`），同一批子响应的 **payload 是真实账号数据**（`CurrencyDict` 1 号 = 28 242 189、3/4 号 = 5 438，`CharacterDBs` 46 条带等级，`CafeDBs` 里 CafeId=1 已 Rank 3）。所以这是一处**仍未解释的矛盾**。",
+      "发券规则（供实现参考，非初始值）：`AcademyTicketDBSchema` 5 行，按 LocationRankSum 1→3、10→4、25→5、50→6、80→7 张票。"
+    ]
+  },
+
+  "q9_cafe": {
+    "question": "咖啡厅 CafeDB 初始 Rank/家具",
+    "confidence": "high",
+    "rule": "新号建 **2 个** Café（CafeId=1、CafeId=2，来自 `CafeInfoDBSchema` 的 2 行），每个 `CafeRank = 1`；每个 Café 都带同一套 **11 件**默认家具（`DefaultFurnitureExcel` 的 FurnitureId 1..11，含位置/朝向）；`LastSummonDate` 初始为 `0001-01-01T00:00:00`（从未召唤）。",
+    "initial": {
+      "CafeDBs": [
+        {"CafeId": 1, "CafeRank": 1, "FurnitureCount": 11, "LastSummonDate": "0001-01-01T00:00:00"},
+        {"CafeId": 2, "CafeRank": 1, "FurnitureCount": 11, "LastSummonDate": "0001-01-01T00:00:00"}
+      ],
+      "CafeDBId_formula": "AccountServerId * 10 + CafeId（官方实测 10015354380 → cafe1=100153543801, cafe2=100153543802）",
+      "FurnitureDBs": [
+        {"FurnitureId": 1, "Location": 2, "PositionX": null, "PositionY": null, "Rotation": null, "name": "原木地板"},
+        {"FurnitureId": 2, "Location": 4, "PositionX": null, "PositionY": null, "Rotation": null, "name": "原木墙壁"},
+        {"FurnitureId": 3, "Location": 3, "PositionX": null, "PositionY": null, "Rotation": null, "name": "天蓝色渐变背景"},
+        {"FurnitureId": 4, "Location": 4, "PositionX": 8.5, "PositionY": 3.0, "Rotation": null, "name": "白板"},
+        {"FurnitureId": 5, "Location": 2, "PositionX": 3.0, "PositionY": 1.5, "Rotation": 270.0, "name": "原木收纳柜"},
+        {"FurnitureId": 6, "Location": 2, "PositionX": 7.5, "PositionY": 8.5, "Rotation": null, "name": "蓝色简洁地毯"},
+        {"FurnitureId": 7, "Location": 2, "PositionX": 7.5, "PositionY": 6.5, "Rotation": null, "name": "原木椅子"},
+        {"FurnitureId": 8, "Location": 2, "PositionX": 9.5, "PositionY": 8.5, "Rotation": null, "name": "原木辅助椅"},
+        {"FurnitureId": 9, "Location": 2, "PositionX": 4.5, "PositionY": 0.5, "Rotation": null, "name": "原木收纳桌"},
+        {"FurnitureId": 10, "Location": 2, "PositionX": 7.5, "PositionY": 8.5, "Rotation": null, "name": "原木大桌"},
+        {"FurnitureId": 11, "Location": 3, "PositionX": 7.5, "PositionY": 3.0, "Rotation": null, "name": "窗帘窗户"}
+      ],
+      "note_position": "PositionX/Y/Rotation 在 BLOB 里是 float32（1091043328=8.5, 1077936128=3.0, 1089470464=7.5, 1092091904=9.5, 1083179008=4.5, 1069547520=1.5, 1132920832=270.0, 1056964608=0.5, 1087373312=6.5）；表里没写的 = 默认 0。"
+    },
+    "evidence": [
+      "规则表 1：`Excel.zip!defaultfurnitureexceltable.bytes`（392 字节，11 行）。字段名来自 metadata 行 62383-62406：`(FurnitureId) / location / positionX / positionY / Rotation`——解码出 5 个 slot：f0=FurnitureId(1..11)、f1=Location(2/3/4)、f2=PositionX、f3=PositionY、f4=Rotation。",
+      "**决定性反证**：官方 1017 `CafeGetInfoResponse.CafeDBs` 2 条 —— CafeId=1（CafeRank=3，被玩家升过级）有 14 件家具 UniqueId = [1..11, 19307, 207307, 302301]；CafeId=2（**CafeRank=1，从没玩过**）有 11 件家具 UniqueId = **恰好 [1,2,3,4,5,6,7,8,9,10,11]**。这与 defaultfurnitureexceltable 的 11 行一一对上，所以『11 件默认家具 + Rank 1』是初始态，官方 CafeId=1 多出来的 3 件是后来买的。",
+      "初始 Rank 的另一条反证：`CafeRankDBSchema` 2 个 Café × Rank 1..10（20 行，SQL 是 CafeId+Rank 复合键），最低 Rank=1；官方 CafeId=2 停在 Rank 1 且 `LastSummonDate = 0001-01-01T00:00:00`（从未召唤），CafeId=1 才被升到 Rank 3 且有召唤日期 2026-08-01。",
+      "2 个 Café 的来源：`CafeInfoDBSchema` 2 行（CafeId=1 图标 `Cafe_Icon_Coupon_1`、CafeId=2 图标 `Cafe_Icon_Coupon_2`），与官方 2 条 CafeDB 对应；`CafeProductionDBSchema`(30 行) 是产出配置，`CafeInteractionDBSchema`(253) 是角色互动，都不是初始态。",
+      "注意 `CafeGetInfoResponse.CafeDB`（单数）在官方响应里是 `null`，真正生效的是 `CafeDBs`（复数，2 条）—— 别把 null 当成『没有咖啡厅』。"
+    ]
+  },
+
+  "q10_shop_visibility": {
+    "question": "商店哪些商品默认可见（官方 1017 里 ShopRecruits 529 个）",
+    "confidence": "high",
+    "rule": "`ShopGachaRecruitListResponse.ShopRecruits` = `ShopRecruitDBSchema` 的**全部行，但排除 Id ∈ {1, 2, 3}** 这 3 条特殊条目（532 - 3 = 529）。日期字段（SalesStartDate / SalesEndDate）**原样下发、不做时间过滤**。",
+    "initial": {
+      "ShopRecruits_count": 529,
+      "rule_id_set": "all rows of ShopRecruitDBSchema where Id NOT IN (1,2,3)",
+      "id_range": "5000000 .. 99999999",
+      "excluded_ids": [1, 2, 3],
+      "date_filter": "none",
+      "ShopFreeRecruitHistoryDBs": []
+    },
+    "evidence": [
+      "DB 侧：`ExcelDB.db!ShopRecruitDBSchema` 532 行，532 个不同 SQL 主键 Id（`SELECT Id` 去重 = 532）。",
+      "官方侧：`02_1017...inner.ShopGachaRecruitListResponse.ShopRecruits` = **529 条**，529 个不同 Id，范围 5000000..99999999。",
+      "diff 精确：`set(DB ids) - set(official ids)` = **[1, 2, 3]**；`set(official) - set(DB)` = **[]**。既不是随机少、也不是日期截断。",
+      "结构证据说明这 3 条不是普通 banner：Id=1/2/3 的行 **缺 f10**（真实 banner 的 f10 = 自身 ShopRecruitId 如 5000000），且 f15/f16 = 79999/19999（真实 banner 是 1900000+ 段的日期码），f9 = [5000]/[5001]（banner 也是 [5000] 但配合 f10 才有意义）。另外 `ConstCommonExcel.TutorialGachaShopId = 2`、`BeforehandGachaShopId = 3` —— 数值上正好对应 1/2/3 这组特殊条目（此项为**推测**，medium confidence）。",
+      "不能按时间筛的证据：官方 529 条里包含 2023-08-03 起、2023-08-10 止的**早已过期** banner（第一条 Id=5000000 就是），也包含 SalesEndDate=2099-12-31 的长期项；起始年份分布 2023:39 / 2024:131 / 2025:176 / 2026:183 —— 若按『当前时间在售卖期内』过滤，条数会远小于 529。",
+      "ShopFreeRecruit 单独一套表：`ShopFreeRecruitDBSchema`(8) + `ShopFreeRecruitPeriodDBSchema`(67)，官方 `ShopFreeRecruitHistoryDBs = []`（新号无历史），别和 529 个 banner 混在一起。"
+    ]
+  },
+
+  "other_initial_state": {
+    "confidence": "medium",
+    "note": "任务 10 问之外，但新号必须有的几项，一并给出证据，避免二次返工。",
+    "MemoryLobby": {
+      "initial": [{"Type": 8, "MemoryLobbyUniqueId": 13010}],
+      "evidence": "官方 1017 `MemoryLobbyListResponse.MemoryLobbyDBs` 只有 1 条：`{Type:8, ParcelInfos:null, MemoryLobbyUniqueId:13010}`。13010 = 优香 = 初始 Leader。该 Type=8 的枚举含义未在 ExcelDB 中找到（ParcelType 里 8 不是 MemoryLobby），confidence=medium。"
+    },
+    "IdCard": {
+      "initial": {"CharacterId": 13003, "BackgroundId": 1},
+      "evidence": "`ConstCommonExcel.IdCardDefaultCharacterId = 13003`（莲见）、`IdCardDefaultBgId = 1`；`IdCardBackgroundDBSchema` 17 行 是背景定义。"
+    },
+    "Emblem": {
+      "initial": {"owned": [1, 2, 3, 4, 5], "equipped": 1},
+      "evidence": "owned 见 q3（DefaultParcelExcel ParcelType=20 五行）；equipped = `ConstCommonExcel.EmblemDefaultId = 1`，与官方 `AttachmentGetResponse.AccountAttachmentDB.EmblemUniqueId = 1` 一致。"
+    },
+    "default_mail": {
+      "initial": "未完全解出",
+      "evidence": "`Excel.zip!defaultmailexceltable.bytes` 176 字节 **1 行**，解码出 8 个 slot：f0=1、f1=2701768717、f2=13、f3='2021-06-23 14:01:00'、f4='2999-12-31 14:00:59'、f5=[2]、f6=[3]、f7=[1200]。metadata（行 62407-62460）只给出 6 个字段名 `localizeCodeId / mailType / mailSendPeriodFrom / mailSendPeriodTo / rewardParcelId[] / rewardParcelAmount[]`，与 8 个 slot 数量不符（多 2 个），且 `mailSendPeriodFrom/To` 存放的是**字符串形式日期**而不是 int64。字段映射未闭合 → 按纪律写『未完全解出』，不猜。可确定的是：这是**一封**带 3 个向量参数的初始邮件，向量值 [2] / [3] / [1200]。",
+      "related": "`systemmailexceltable.bytes` 29 行、`defaultparcelexceltable` 与它无交叉引用可证。"
+    }
+  },
+
+  "server_apply_skeleton": {
+    "_note": "把上面结论落成一个新账号的最小可执行形态。占位符 <...> 表示运行时才知道的值（如 ServerId）。",
+    "CharacterDBs": [
+      {"UniqueId": 13010, "StarGrade": 2, "Level": 1, "Exp": 0, "FavorRank": 1, "FavorExp": 0,
+       "PublicSkillLevel": 1, "ExSkillLevel": 1, "PassiveSkillLevel": 1, "ExtraPassiveSkillLevel": 1, "LeaderSkillLevel": 1,
+       "IsNew": true, "IsLocked": false, "IsFavorite": false, "EquipmentServerIds": [], "PotentialStats": {"1": 0, "2": 0, "3": 0}},
+      {"UniqueId": 16003, "StarGrade": 1, "Level": 1, "Exp": 0, "FavorRank": 1, "FavorExp": 0,
+       "PublicSkillLevel": 1, "ExSkillLevel": 1, "PassiveSkillLevel": 1, "ExtraPassiveSkillLevel": 1, "LeaderSkillLevel": 1,
+       "IsNew": true, "IsLocked": false, "IsFavorite": false, "EquipmentServerIds": [], "PotentialStats": {"1": 0, "2": 0, "3": 0}},
+      {"UniqueId": 13003, "StarGrade": 2, "Level": 1, "Exp": 0, "FavorRank": 1, "FavorExp": 0,
+       "PublicSkillLevel": 1, "ExSkillLevel": 1, "PassiveSkillLevel": 1, "ExtraPassiveSkillLevel": 1, "LeaderSkillLevel": 1,
+       "IsNew": true, "IsLocked": false, "IsFavorite": true, "EquipmentServerIds": [], "PotentialStats": {"1": 0, "2": 0, "3": 0}},
+      {"UniqueId": 26000, "StarGrade": 1, "Level": 1, "Exp": 0, "FavorRank": 1, "FavorExp": 0,
+       "PublicSkillLevel": 1, "ExSkillLevel": 1, "PassiveSkillLevel": 1, "ExtraPassiveSkillLevel": 1, "LeaderSkillLevel": 1,
+       "IsNew": true, "IsLocked": false, "IsFavorite": false, "EquipmentServerIds": [], "PotentialStats": {"1": 0, "2": 0, "3": 0}}
+    ],
+    "ItemDBs": [{"Type": 4, "UniqueId": 2, "StackCount": 5, "IsNew": true, "IsLocked": false}],
+    "EquipmentDBs": [],
+    "EmblemDBs": [
+      {"Type": 20, "UniqueId": 1}, {"Type": 20, "UniqueId": 2}, {"Type": 20, "UniqueId": 3},
+      {"Type": 20, "UniqueId": 4}, {"Type": 20, "UniqueId": 5}
+    ],
+    "AccountAttachmentDB": {"EmblemUniqueId": 1},
+    "AccountCurrencyDB": {
+      "AccountLevel": 1,
+      "CurrencyDict": {"1": 10000, "2": 0, "3": 600, "4": 0, "5": 24, "6": 3, "7": 5, "8": 3,
+                       "9": 0, "10": 0, "11": 0, "12": 0, "13": 0, "14": 0, "15": 0, "16": 0,
+                       "17": 3, "18": 0, "19": 40, "20": 40, "21": 40, "22": 6, "23": 6,
+                       "24": 1, "25": 1, "26": 1, "27": 1, "28": 0, "29": 0}
+    },
+    "EchelonDBs": [
+      {"EchelonType": 1, "EchelonNumber": 1, "ExtensionType": 0,
+       "LeaderServerId": "<13010 的 ServerId>",
+       "MainSlotServerIds": ["<13010>", "<16003>", "<13003>", 0],
+       "SupportSlotServerIds": ["<26000>", 0],
+       "TSSInteractionServerId": 0, "UsingFlag": 0,
+       "SkillCardMulliganCharacterIds": [0, 0, 0],
+       "CombatStyleIndex": [0, 0, 0, 0, 0, 0]}
+    ],
+    "CafeDBs": [
+      {"CafeId": 1, "CafeRank": 1, "LastSummonDate": "0001-01-01T00:00:00", "Furniture": "q9 的 11 件"},
+      {"CafeId": 2, "CafeRank": 1, "LastSummonDate": "0001-01-01T00:00:00", "Furniture": "q9 的 11 件"}
+    ],
+    "ScenarioHistoryDBs": [],
+    "ScenarioGroupHistoryDBs": [],
+    "TutorialIds": [],
+    "ShopRecruits": "ShopRecruitDBSchema 里 Id NOT IN (1,2,3) 的 529 条",
+    "ShopFreeRecruitHistoryDBs": [],
+    "MemoryLobbyDBs": [{"Type": 8, "MemoryLobbyUniqueId": 13010}],
+    "AcademyLocationDBs": "未找到 → 见 q8.suggested_minimum（待验证）"
+  },
+
+  "not_found": [
+    {
+      "item": "ExcelDB.db 里的『初始/默认』表",
+      "verdict": "不存在。398 张表全量核过，无 Initial/Default/Start/Newbie 类表名，CharacterDBSchema 里也没有『是否初始赠送』字段。规则在 Excel.zip 的 *.bytes 里（已找到并解出）。"
+    },
+    {
+      "item": "学院 AcademyLocationDBs 的初始条数",
+      "verdict": "未找到。ExcelDB 与 Excel.zip 里都没有『新号建几个学院地点』的规则表；官方抓包只能证明一个玩过的号有 9 条。"
+    },
+    {
+      "item": "学院地点 14(Trinity) / 18(Shanhaijing) 为什么不在官方响应里",
+      "verdict": "未找到确定规则。有两条候选解释（客户端数据更新 / 按首次进入建行），见 q8.evidence 第 4、5 条，均无法从数据闭合。"
+    },
+    {
+      "item": "ParcelType 枚举的完整数值表",
+      "verdict": "部分找到。已确认 Character=1、Equipment=3、Item=4（本仓库实测结论 `_intel_ba_sniff_FINDINGS.md`），Currency=2 与 Emblem=20 由『CurrencyDBSchema 29 行 = CurrencyDict 29 键』和『官方 EmblemDBs 全部 Type=20 且 id 1..5 命中』反推（high），其余数值（如 5/6/8…）未找到。"
+    },
+    {
+      "item": "DefaultMailExcel 的字段完整语义",
+      "verdict": "未完全解出。metadata 给 6 个字段名，BLOB 解出 8 个 slot，且日期字段是字符串；只确定『1 封初始邮件，3 个向量参数 [2]/[3]/[1200]』。"
+    },
+    {
+      "item": "新号 AccountLevel / 经验 / 首日任务进度",
+      "verdict": "本次范围外（任务是 10 问）。已顺带记下 `AccountLevelDBSchema` 90 行、`AccountLevelRewardDBSchema` 6 行（等级奖励，非初始），官方 `AccountLevelRewardIds = [1]`。"
+    }
+  ],
+
+  "how_to_reproduce": {
+    "dump_any_exceldb_table": "python work/ba/data/dump_table.py --table <XxxDBSchema> [--limit N] [--where \"Id=3\"] [--schema] [--out out.json]",
+    "dump_any_bytes_table": "python work/ba/data/dump_table.py --bytes work/ba/data/_excel_unzip/<name>exceltable.bytes [--fields \"A,B,C\"]",
+    "list_all_tables": "python work/ba/data/dump_table.py --list",
+    "field_names_source": "work/ba/audit/ba-apk/out/metadata-strings.txt —— 搜 `Create<Xxx>Excel` 后面连续的 `Add*` 就是字段声明顺序（= FlatBuffers slot 顺序）",
+    "key_gotchas": [
+      "soffset 有符号：vtable 去重时后表引用『表之后』的 vtable（负 soffset）。不处理会漏解 3/4 的行。",
+      "标量必须由『整表投票』定型，不能逐行挑候选：DefaultParcel 里标量 2/5/… 当 uoffset 读会指到隔壁表，25 行错 6 行。",
+      "int64 向量：DefaultEchelonExcel.MainId 是 vector<int64>，按 4 字节读会变成 [13010,0,16003]，条数和值都错。",
+      "ExcelDB.db 只读打开：sqlite3.connect('file:...?mode=ro', uri=True)。本次全程只读，未写入任何一字节。"
+    ]
+  }
+}

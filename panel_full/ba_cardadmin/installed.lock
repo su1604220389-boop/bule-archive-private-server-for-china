@@ -1,0 +1,10 @@
+{
+    "installed_at": "2026-11-16 05:11:07",
+    "php": "8.2.31",
+    "db_host": "127.0.0.1",
+    "db_port": 3306,
+    "db_name": "ba_cardadmin",
+    "admin_user": "cardadmin",
+    "cards_json_path": "\/www\/wwwroot\/ba_sdk\/cards.json",
+    "sdk_log_path": "\/www\/wwwroot\/ba_sdk\/sdk.log"
+}

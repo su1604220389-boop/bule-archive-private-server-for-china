@@ -1,0 +1,115 @@
+﻿对比,路径,官方值/类型,我们的值/类型,一致?,严重度,备注
+C,AcademyDB.ZoneVisitCharacterDBs.10.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.11.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.110.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.111.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.112.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.113.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.114.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.115.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.116.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.117.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.12.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.13.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.14.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.15.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.16.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.20.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.21.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.22.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.23.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.24.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.25.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.26.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.30.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.31.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.32.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.33.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.34.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.35.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.36.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.37.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.40.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.41.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.42.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.43.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.44.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.45.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.46.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.47.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.50.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.51.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.52.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.53.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.54.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.55.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.56.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.57.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.70.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.71.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.72.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.73.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.74.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.75.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.76.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.77.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.80.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.81.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.82.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.83.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.84.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.85.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.86.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.87.length,list(len=3),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.90.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.91.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.92.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.93.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.94.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.95.length,list(len=2),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.96.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyDB.ZoneVisitCharacterDBs.97.length,list(len=1),list(len=0),否,P1-语义,数组长度不同
+C,AcademyLocationDBs[0].Rank,int 2,int 1,否,P1-语义,
+C,AcademyLocationDBs[3].Rank,int 2,int 1,否,P1-语义,
+C,AcademyLocationDBs[6].Rank,int 2,int 1,否,P1-语义,
+C,AcademyLocationDBs[7].Rank,int 2,int 1,否,P1-语义,
+C,AcademyLocationDBs[8].Exp,int 200,int 0,否,P1-语义,
+C,AcademyLocationDBs[8].Rank,int 2,int 1,否,P1-语义,
+C,AcademyDB.LastUpdate,str '2026-11-16T04:00:06.479',str '2026-11-16T06:13:47.88',否,P2-动态,
+C,RequestId,str '3770c1bc-a631-46fb-a9b6-0421ae2601fe',str '0532c89b-5eb9-47dc-b651-d846406ed510',否,P2-动态,
+C,ServerTimeTicks,int 639304002548158993,int 639304064278806820,否,P2-动态,
+C,SessionKey.MxToken,str 'Vji5A/Cy6X2enQZKeYgrjxAC8MoRDOCT2Tb1SW13PcZTq2cnyCPPdd81pGbz...,str 'Nu8RXd9gz8IEJYYeS98XZludS87SHqYw7JcQ+5TMaFh6Z7UOROqmpEJSXAhL...,否,P2-动态,
+C,AcademyDB.AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[0].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[0].Exp,int 0,int 0,是,OK,
+C,AcademyLocationDBs[0].LocationId,int 1,int 1,是,OK,
+C,AcademyLocationDBs[1].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[1].Exp,int 0,int 0,是,OK,
+C,AcademyLocationDBs[1].LocationId,int 7,int 7,是,OK,
+C,AcademyLocationDBs[1].Rank,int 1,int 1,是,OK,
+C,AcademyLocationDBs[2].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[2].Exp,int 0,int 0,是,OK,
+C,AcademyLocationDBs[2].LocationId,int 11,int 11,是,OK,
+C,AcademyLocationDBs[2].Rank,int 1,int 1,是,OK,
+C,AcademyLocationDBs[3].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[3].Exp,int 0,int 0,是,OK,
+C,AcademyLocationDBs[3].LocationId,int 12,int 12,是,OK,
+C,AcademyLocationDBs[4].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[4].Exp,int 0,int 0,是,OK,
+C,AcademyLocationDBs[4].LocationId,int 13,int 13,是,OK,
+C,AcademyLocationDBs[4].Rank,int 1,int 1,是,OK,
+C,AcademyLocationDBs[5].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[5].Exp,int 0,int 0,是,OK,
+C,AcademyLocationDBs[5].LocationId,int 15,int 15,是,OK,
+C,AcademyLocationDBs[5].Rank,int 1,int 1,是,OK,
+C,AcademyLocationDBs[6].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[6].Exp,int 0,int 0,是,OK,
+C,AcademyLocationDBs[6].LocationId,int 16,int 16,是,OK,
+C,AcademyLocationDBs[7].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[7].Exp,int 0,int 0,是,OK,
+C,AcademyLocationDBs[7].LocationId,int 17,int 17,是,OK,
+C,AcademyLocationDBs[8].AccountId,int 10015354380,int 10015354380,是,OK,
+C,AcademyLocationDBs[8].LocationId,int 19,int 19,是,OK,
+C,Protocol,int 24000,int 24000,是,OK,
+C,ServerNotification,int 0,int 0,是,OK,
+C,SessionKey.AccountServerId,int 10015354380,int 10015354380,是,OK,

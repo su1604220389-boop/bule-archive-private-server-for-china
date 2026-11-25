@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "id": 88,
+    "bj": "04:30:55.625",
+    "method": "POST",
+    "host": "gsqc-api.bluearchive-cn.com",
+    "path": "/api/networktime/sync",
+    "status": 200,
+    "protocol": 3,
+    "protocol_name": "NetworkTime_Sync",
+    "req_bytes": 906
+  },
+  "plain": "{\"Protocol\":3,\"Resendable\":true,\"Hash\":12884901893,\"IsTest\":false,\"SessionKey\":{\"AccountServerId\":10015354380,\"MxToken\":\"Vji5A/Cy6X2enQZKeYgrjxAC8MoRDOCT2Tb1SW13PcZTq2cnyCPPdd81pGbzYBKA\"},\"AccountId\":10015354380,\"OSType\":2}",
+  "json": {
+    "Protocol": 3,
+    "Resendable": true,
+    "Hash": 12884901893,
+    "IsTest": false,
+    "SessionKey": {
+      "AccountServerId": 10015354380,
+      "MxToken": "<REDACTED_TOKEN>"
+    },
+    "AccountId": 10015354380,
+    "OSType": 2
+  }
+}

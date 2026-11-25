@@ -1,0 +1,2 @@
+==============================================================================================================
+FILE work\ba\audit\ba-work\x\assets\bin\Data\Managed\Metadata\global-metadata.dat  needle='bluearchive' L=11  hits=0

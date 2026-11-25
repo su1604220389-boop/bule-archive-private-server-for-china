@@ -1,0 +1,38 @@
+# ============================================================================
+#  BA SNI splitter (stream layer)  -- v3
+#  whitelist (*.bluearchive-cn.com / example.com / no-SNI) -> 127.0.0.1:8443
+#  everything else -> transparent TCP passthrough to real backend
+# ============================================================================
+map $ssl_preread_server_name $ba_host {
+    default                     $ssl_preread_server_name;
+    # static CDN must be PASSTHROUGH (real cert / real content), must precede the bluearchive rules
+    ~*^static(-qc|-hs)?\.bluearchive-cn\.com$   $ssl_preread_server_name;
+    ""                          127.0.0.1;
+    ~*^bluearchive-cn\.com$     127.0.0.1;
+    ~*\.bluearchive-cn\.com$    127.0.0.1;
+    ~*^example\.com$       127.0.0.1;
+    ~*\.example\.com$      127.0.0.1;
+}
+map $ssl_preread_server_name $ba_port {
+    default                     443;
+    ~*^static(-qc|-hs)?\.bluearchive-cn\.com$   443;
+    ""                          8443;
+    ~*^bluearchive-cn\.com$     8443;
+    ~*\.bluearchive-cn\.com$    8443;
+    ~*^example\.com$       8443;
+    ~*\.example\.com$      8443;
+}
+
+server {
+    listen 443;
+    ssl_preread on;
+
+    resolver 223.5.5.5 119.29.29.29 114.114.114.114 valid=60s ipv6=off;
+    resolver_timeout 10s;
+
+    proxy_connect_timeout 5s;
+    proxy_timeout 600s;
+    proxy_buffer_size 16k;
+
+    proxy_pass $ba_host:$ba_port;
+}

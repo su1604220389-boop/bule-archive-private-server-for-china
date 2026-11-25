@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+# ALL-/api/ probe v3: record every request (path+headers+body), then forward to Shittim with the ORIGINAL URI
+import http.server, socketserver, json, time, base64, urllib.request, urllib.error
+
+LOG = '/www/wwwroot/bapatch/logs/api_all_requests.log'
+TARGET_BASE = 'http://127.0.0.1:5000'
+
+HOP = ('host', 'content-length', 'connection', 'accept-encoding', 'transfer-encoding')
+
+class H(http.server.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
+    def _handle(self):
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+        except Exception:
+            n = 0
+        body = self.rfile.read(n) if n else b''
+
+        rec = {
+            't': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'from': self.client_address[0],
+            'method': self.command,
+            'path': self.path,
+            'headers': dict(self.headers.items()),
+            'body_len': len(body),
+            'body_b64': base64.b64encode(body).decode() if body else '',
+            'body_hex_head': body[:256].hex(),
+            'body_printable': ''.join(chr(c) if 32 <= c < 127 else '.' for c in body[:2048]),
+        }
+
+        code, resp, ctype, err = 0, b'', 'application/octet-stream', ''
+        try:
+            url = TARGET_BASE + self.path
+            req = urllib.request.Request(url, data=body if body else None, method=self.command)
+            for k, v in self.headers.items():
+                if k.lower() not in HOP:
+                    req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                code = r.status
+                ctype = r.headers.get('Content-Type', ctype)
+                resp = r.read()
+        except urllib.error.HTTPError as e:
+            code = e.code
+            ctype = e.headers.get('Content-Type', ctype) if e.headers else ctype
+            try:
+                resp = e.read()
+            except Exception:
+                resp = b''
+        except Exception as e:
+            err = str(e)
+            code = 502
+
+        rec['fwd_code'] = code
+        rec['fwd_resp_len'] = len(resp)
+        rec['fwd_resp_b64'] = base64.b64encode(resp[:4096]).decode()
+        rec['fwd_resp_printable'] = ''.join(chr(c) if 32 <= c < 127 else '.' for c in resp[:1024])
+        rec['fwd_err'] = err
+
+        try:
+            with open(LOG, 'a') as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+
+        try:
+            self.send_response(code if code else 502)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+        except Exception:
+            pass
+
+    do_GET = _handle
+    do_POST = _handle
+    do_PUT = _handle
+    do_DELETE = _handle
+
+    def log_message(self, *a):
+        pass
+
+socketserver.ThreadingTCPServer.allow_reuse_address = True
+with socketserver.ThreadingTCPServer(('127.0.0.1', 9097), H) as s:
+    s.serve_forever()

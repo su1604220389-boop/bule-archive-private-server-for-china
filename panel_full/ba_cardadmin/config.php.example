@@ -1,0 +1,62 @@
+<?php
+/**
+ * config.php.example — 数据库与站点配置模板
+ *
+ * 正常情况下 **不需要** 手工复制这个文件：
+ * 访问 install.php 走一遍安装向导，会自动为你生成 config.php
+ * （数据库凭据 + 随机 APP_SECRET，权限 0640）。
+ *
+ * 只有在下面两种情况才手动用它：
+ *   1) install.php 写不进去（目录不可写），向导会把生成好的内容直接显示给你复制；
+ *   2) 迁移/恢复站点，想手写一份 config.php。
+ *
+ * 手工使用时：复制为 config.php，填好值，然后 chmod 640 config.php
+ *   cp config.php.example config.php
+ *   chmod 640 config.php
+ *
+ * ！！！config.php 含数据库密码，不要提交到 git、不要发群里、不要贴到工单里。
+ */
+
+/* 防止被 web 直接访问（本文件被 inc/db.php 引入时才继续执行） */
+if (!defined('CARDADMIN')) {
+    http_response_code(403);
+    exit('403 Forbidden');
+}
+
+/* ------------------------------------------------------------------ 数据库 --- */
+/* 宝塔 → 数据库 里创建后，把库名/用户名/密码填进来 */
+define('DB_HOST', '127.0.0.1');
+define('DB_PORT', 3306);
+define('DB_NAME', 'ba_cardadmin');
+define('DB_USER', '<REDACTED_DB_CREDENTIAL>');
+define('DB_PASS', 'CHANGE_ME');
+
+/* -------------------------------------------------------------- 站点参数 --- */
+define('APP_NAME', '卡密管理后台');
+
+/* 32 字节随机 hex。生成方法：
+ *   php -r "echo bin2hex(random_bytes(32));"
+ * 安装向导会自动生成，不要留空、不要用弱值。 */
+define('APP_SECRET', 'CHANGE_ME_64_HEX_CHARS');
+
+define('APP_TIMEZONE', 'Asia/Shanghai');
+
+/* 线上必须 false（false 时只显示友好错误，不吐堆栈） */
+define('APP_DEBUG', false);
+
+/* 站点子目录：一般留空（自动识别）。若站点挂在 https://x.com/card/ 且自动识别异常，
+ * 可以显式写成 'card'。 */
+define('APP_BASE', '');
+
+/* ------------------------------------------------------- 与 sdkcard.py 对接 --- */
+/* sdkcard.py 里 CARDS = '/root/bapatch/cards.json' 指向的文件 */
+define('CARDS_JSON_PATH', '/root/bapatch/cards.json');
+/* sdkcard.py 里 LOG = '/root/bapatch/sdk.log' 指向的文件（只读解析） */
+define('SDK_LOG_PATH', '/root/bapatch/sdk.log');
+
+/* ------------------------------------------------------------------ 限制 --- */
+define('SESSION_TTL', 43200);        /* 后台会话有效期：12 小时 */
+define('MAX_UPLOAD_BYTES', 2097152); /* 导入/上传上限 2 MB */
+define('MAX_BATCH_GEN', 5000);       /* 一次最多批量生成多少个 */
+define('LOGIN_MAX_FAIL', 5);         /* 连续失败几次锁定 */
+define('LOGIN_LOCK_SEC', 600);       /* 锁定多少秒（10 分钟） */

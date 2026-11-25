@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+# account auth probe v2: record full request, forward to Shittim /api/gateway, return its response verbatim
+import http.server, socketserver, json, time, base64, urllib.request, urllib.error
+
+LOG    = '/www/wwwroot/bapatch/logs/account_auth_requests.log'
+TARGET = 'http://127.0.0.1:5000/api/gateway'
+
+class H(http.server.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
+    def _handle(self):
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+        except Exception:
+            n = 0
+        body = self.rfile.read(n) if n else b''
+
+        rec = {
+            't': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'from': self.client_address[0],
+            'reqline': self.requestline,
+            'headers': dict(self.headers.items()),
+            'body_len': len(body),
+            'body_b64': base64.b64encode(body).decode(),
+            'body_hex_head': body[:256].hex(),
+            'body_printable': ''.join(chr(c) if 32 <= c < 127 else '.' for c in body[:2048]),
+        }
+
+        code, resp, err = 0, b'', ''
+        try:
+            req = urllib.request.Request(TARGET, data=body, method='POST')
+            for k, v in self.headers.items():
+                if k.lower() not in ('host', 'content-length', 'connection'):
+                    req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=20) as r:
+                code = r.status
+                resp = r.read()
+        except urllib.error.HTTPError as e:
+            code = e.code
+            try:
+                resp = e.read()
+            except Exception:
+                resp = b''
+        except Exception as e:
+            err = str(e)
+            code = 502
+
+        rec['fwd_code'] = code
+        rec['fwd_resp_len'] = len(resp)
+        rec['fwd_resp_b64'] = base64.b64encode(resp[:4096]).decode()
+        rec['fwd_err'] = err
+
+        try:
+            with open(LOG, 'a') as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+
+        try:
+            self.send_response(code if code else 502)
+            self.send_header('Content-Type', self.headers.get('Content-Type', 'application/octet-stream'))
+            self.send_header('Content-Length', str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+        except Exception:
+            pass
+
+    do_POST = _handle
+    do_GET = _handle
+
+    def log_message(self, *a):
+        pass
+
+socketserver.ThreadingTCPServer.allow_reuse_address = True
+with socketserver.ThreadingTCPServer(('127.0.0.1', 9097), H) as s:
+    s.serve_forever()

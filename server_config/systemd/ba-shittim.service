@@ -1,0 +1,25 @@
+[Unit]
+Description=Shittim-Server (Blue Archive private server, API 5000 / Gateway 5100) [tmux-stdin]
+Documentation=file:///www/wwwroot/ba_srv
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=root
+WorkingDirectory=/www/wwwroot/ba_srv
+Environment=DOTNET_ROOT=/root/dotnet10
+Environment=DOTNET_gcServer=0
+Environment=DOTNET_GCHeapHardLimit=0x40000000
+Environment=HOME=/root
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+ExecStart=/usr/bin/tmux new-session -d -s shittim -x 220 -y 50 "/root/dotnet10/dotnet /www/wwwroot/ba_srv/Shittim-Server.dll --console --id 2"
+ExecStop=/usr/bin/tmux kill-session -t shittim
+RemainAfterExit=yes
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/ba-shittim.log
+StandardError=append:/var/log/ba-shittim.log
+
+[Install]
+WantedBy=multi-user.target

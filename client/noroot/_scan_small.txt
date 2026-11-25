@@ -1,0 +1,43 @@
+needles = bluearchive-cn, state-api, gsqc-api, gs-api, yostar.cn, xuliehaochaxu, https://, bluearchive, bluearchive-com, bluearchive.com, yostar.net, yostar.com, yostar, test-ba, api/state, /api/, http://, bluearchive-cn.com, gs-api.bluearchive, gsqc-api.bluearchive, state-api.bluearchive
+
+====================================================================================================
+FILE work\ba\audit\ba-apk\lib\arm64-v8a\libmain.so  (18608 bytes = 0.0 MB)   hits=1
+    https://             ascii    1
+----------------------------------------------------------------------------------------------------
+  needle='https://' enc=ascii  offset=16490 (0x0000406A)  section=.comment (-, vaddr=0x3a)
+  ctx@16390: ..@...............V.......]...............Android (6454773 based on r365631c2) clang version 9.0 | .8 (https://android.googlesource.com/toolchain/llvm-project 98c855489587874b2a325e7a516b99d83859 | 9c6f) (b
+====================================================================================================
+FILE work\ba\audit\ba-apk\lib\arm64-v8a\libn.so  (18304 bytes = 0.0 MB)   hits=0
+====================================================================================================
+FILE work\ba\audit\ba-apk\lib\arm64-v8a\libtprt.so  (1692296 bytes = 1.6 MB)   hits=1
+    https://             ascii    1
+----------------------------------------------------------------------------------------------------
+  needle='https://' enc=ascii  offset=1690127 (0x0019CA0F)  section=.comment (-, vaddr=0xcb)
+  ctx@1690027: r: LLD 18.0.3.Android (12470979, +pgo, +bolt, +lto, +mlgo, based on r522817c) clang version 18.0 | .3 (https://android.googlesource.com/toolchain/llvm-project d8003a456d14a3deb8054cdaa529ffbf02d9 | b262)...
+====================================================================================================
+FILE work\ba\audit\ba-apk\lib\arm64-v8a\libsigner.so  (945120 bytes = 0.9 MB)   hits=1
+    https://             ascii    1
+----------------------------------------------------------------------------------------------------
+  needle='https://' enc=ascii  offset=943094 (0x000E63F6)  section=.comment (-, vaddr=0x56)
+  ctx@942994: /D7..D&....DPVAndroid (11349228, +pgo, +bolt, +lto, -mlgo, based on r487747e) clang version 17.0 | .2 (https://android.googlesource.com/toolchain/llvm-project d9f89f4d16663d5012e5c09495f3b30ece3d | 2362).Li
+====================================================================================================
+FILE work\ba\audit\ba-apk\lib\arm64-v8a\libjutils.so  (1492216 bytes = 1.4 MB)   hits=0
+====================================================================================================
+FILE work\ba\audit\ba-apk\resources.arsc  (1156308 bytes = 1.1 MB)   hits=2
+    https://             ascii    2
+----------------------------------------------------------------------------------------------------
+  needle='https://' enc=ascii  offset=44532 (0x0000ADF4)  section=-
+  ctx@44432: , 1.0).  cubic-bezier(0.4, 0.0, 0.2, 1.0).  cubic-bezier(0.4, 0.0, 1.0, 1.0)...d...delete...ente | r.55https://github.com/journeyapps/zxing-android-embedded...https://journeyapps.com/...left...m. | ..ms...n
+----------------------------------------------------------------------------------------------------
+  needle='https://' enc=ascii  offset=44588 (0x0000AE2C)  section=-
+  ctx@44488: (0.4, 0.0, 1.0, 1.0)...d...delete...enter.55https://github.com/journeyapps/zxing-android-embedde | d...https://journeyapps.com/...left...m...ms...null.TTpath(M 0,0 C 0.05, 0, 0.133333, 0.06, 0.16 | 6666, 0.
+====================================================================================================
+FILE work\ba\audit\ba-apk\AndroidManifest.xml  (50552 bytes = 0.0 MB)   hits=1
+    http://              utf16le  1
+----------------------------------------------------------------------------------------------------
+  needle='http://' enc=utf16le  offset=20212 (0x00004EF4)  section=-
+  ctx@20112: p.e.r.m.i.s.s.i.o.n...m.s.a...S.E.C.U.R.I.T.Y._.A.C.C.E.S.S.....h.k...a.l.i.p.a.y...w.a.l.l.e.t. | ..*.h.t.t.p.:././.s.c.h.e.m.a.s...a.n.d.r.o.i.d...c.o.m./.a.p.k./.r.e.s./.a.n.d.r.o.i.d...#.h.u. | m.e._.c.
+====================================================================================================
+FILE work\ba\audit\ba-work\x\assets\aa\settings.json  (3161 bytes = 0.0 MB)   hits=0
+
+TOTAL ROWS = 6

@@ -1,0 +1,185 @@
+==============================================================================================================
+FILE work\ba\audit\ba-work\x\assets\bin\Data\Managed\Metadata\global-metadata.dat (38426024 B)  anchor_hits=19173  strict_urls=171  suspect=10
+  key=0x00 n=1   first=0x0233A2F6  http://esotericsoftware.com/spine-unity#BoundingBoxFollow
+  key=0x00 n=2   first=0x0233A2F6  http://esotericsoftware.com/spine-unity#BoundingBoxFollowerGraphic
+  key=0x00 n=3   first=0x0233A45D  http://esotericsoftware.com/spine-unity#SkeletonAnimation-Component
+  key=0x00 n=1   first=0x0233A633  http://esotericsoftware.com/spine-unity#SkeletonGrap
+  key=0x00 n=3   first=0x0233A519  http://esotericsoftware.com/spine-unity#SkeletonGraphic-Component
+  key=0x00 n=3   first=0x0233A633  http://esotericsoftware.com/spine-unity#SkeletonGraphicCustomMaterials
+  key=0x00 n=2   first=0x0233A569  http://esotericsoftware.com/spine-unity#SkeletonMecanim-Component
+  key=0x00 n=4   first=0x0233A3B3  http://esotericsoftware.com/spine-unity#SkeletonMecanimRootMotion
+  key=0x00 n=6   first=0x0233A6E0  http://esotericsoftware.com/spine-unity#SkeletonRenderSeparator
+  key=0x00 n=3   first=0x0233A5CC  http://esotericsoftware.com/spine-unity#SkeletonRenderer-Component
+  key=0x00 n=1   first=0x0233A688  http://esotericsoftware.com/spine-unity#SkeletonRendererCustomMate
+  key=0x00 n=2   first=0x0233A688  http://esotericsoftware.com/spine-unity#SkeletonRendererCustomMaterials
+  key=0x00 n=1   first=0x0233A876  http://esotericsoftware.com/spine-unity#SkeletonUtilityCons
+  key=0x00 n=2   first=0x0233A876  http://esotericsoftware.com/spine-unity#SkeletonUtilityConstraint
+  key=0x00 n=11  first=0x022DA579  http://go.microsoft.com/fwlink/?linkid=14202
+  key=0x4E n=1   first=0x000D3852  http://james.newtonking.com/projects/jsonA]]Y
+  key=0x30 n=1   first=0x000D38AC  http://schemas.microsoft.com/clr/assem/
+  key=0xCF n=1   first=0x000D38D3  http://schemas.microsoft.com/clr/ns/LPPT
+  key=0xEB n=1   first=0x000D38F7  http://schemas.microsoft.com/clr/nsassem/?##'mxx$4?2:6$y:
+  key=0x40 n=1   first=0x000D395C  http://schemas.xmlsoap.org/soap/encoding/1--)cvv*:1
+  key=0x23 n=1   first=0x000D39BF  http://schemas.xmlsoap.org/wsdl/
+  key=0xB5 n=9   first=0x000C172B  http://test-ba.yostar.net:5210/api/state
+  key=0xEE n=2   first=0x00044C1A  http://www.microsoft.com/xml/security/algorithm/PKCS1-v1.5-KeyEx
+  key=0xEE n=2   first=0x00044C67  http://www.microsoft.com/xml/security/encryption/v1.0
+  key=0xED n=1   first=0x000D39F1  http://www.w3.org/1999/XMLSchema-instance
+  key=0x86 n=1   first=0x000D3A1A  http://www.w3.org/2000/09/xmldsig#dsa-sha1
+  key=0x58 n=1   first=0x000D3A44  http://www.w3.org/2000/09/xmldsig#hmac-sha1C__[
+  key=0x73 n=1   first=0x000D3A6F  http://www.w3.org/2000/09/xmldsig#rsa-sha1
+  key=0x23 n=1   first=0x000D3ABF  http://www.w3.org/2000/10/XMLSchema-instance
+  key=0xF7 n=1   first=0x000D3AEB  http://www.w3.org/2000/xmlns/
+  key=0x00 n=1   first=0x017F0C1B  http://www.w3.org/2000/xmlns/
+  key=0xA9 n=1   first=0x000A4B68  http://www.w3.org/2000/xmlns/'.
+  key=0xA2 n=1   first=0x0009CF12  http://www.w3.org/2000/xmlns/'.=
+  key=0xA1 n=1   first=0x000D3B3D  http://www.w3.org/2001/04/xmldsig-more#hmac-sha256
+  key=0x73 n=1   first=0x000D3B6F  http://www.w3.org/2001/04/xmldsig-more#hmac-sha384&::
+  key=0xCF n=1   first=0x000D3BD3  http://www.w3.org/2001/04/xmldsig-more#rsa-sha256?##'mxx
+  key=0xA9 n=1   first=0x000D3C35  http://www.w3.org/2001/04/xmldsig-more#rsa-sha512
+  key=0x7A n=1   first=0x000D3C66  http://www.w3.org/2001/04/xmldsig-more#sha384
+  key=0x26 n=1   first=0x000D3CBA  http://www.w3.org/2001/04/xmlenc#sha512
+  key=0xFD n=1   first=0x000D3CE1  http://www.w3.org/2001/XMLSchema
+  key=0x00 n=1   first=0x022DBED8  http://www.w3.org/2001/XMLSchema
+  key=0x9D n=1   first=0x000D3D01  http://www.w3.org/2001/XMLSchema#stringA]]Y
+  key=0xD1 n=1   first=0x0006817E  http://www.w3.org/2001/XMLSchema'
+  key=0xAB n=1   first=0x000A5926  http://www.w3.org/2001/XMLSchema'.
+  key=0x9D n=1   first=0x000A7141  http://www.w3.org/2001/XMLSchema-instance.
+  key=0x00 n=2   first=0x017EB0FB  http://www.w3.org/2001/XMLSchemaRhttp://www.w3.org/2001/XMLSchema-instance
+  key=0x4D n=1   first=0x000D3D51  http://www.w3.org/2003/11/xpath-datatypes
+  key=0xC3 n=1   first=0x000D39DF  http://www.w3.org/FZZ
+  key=0x72 n=1   first=0x0008D2DA  http://www.w3.org/XML/1998/namespace
+  key=0xE1 n=1   first=0x000D3D7A  http://www.w3.org/XML/1998/namespace
+  key=0x73 n=1   first=0x000A4AA0  http://www.w3.org/XML/1998/namespace'.
+  key=0x25 n=1   first=0x000D3DB9  https://account.yostar.cn/cn-ba/collect
+  key=0xFC n=1   first=0x000D3DE0  https://account.yostar.cn/cn-ba/shared_list
+  key=0x97 n=1   first=0x000D3E0B  https://beian.miit.gov.cn/FZZ
+  key=0xB9 n=1   first=0x000D3E25  https://bluearchive.jp/help?data=
+  key=0x00 n=1   first=0x0222B984  https://carloswilkes.github.io/Documentation/LeanTouch#LeanSelectable
+  key=0x00 n=2   first=0x0222BA26  https://carloswilkes.github.io/Documentation/LeanTouch#LeanTouch
+  key=0x5A n=1   first=0x000D3E46  https://cdkey.yo-star.com/api/coupon/use@
+  key=0x16 n=1   first=0x000BD4B2  https://docs.microsoft.com/en-us/dotnet/api/system.valuetuple-8.rest
+  key=0x66 n=1   first=0x02324A4C  https://docs.unity3d.com/
+  key=0x00 n=1   first=0x0233F26A  https://docs.unity3d.com/2021.3/Documentation/Manual/UIE-sprite.html
+  key=0x03 n=1   first=0x00032C92  https://docs.unity3d.com/Manual/ManagedCodeStripping.html.
+  key=0x00 n=1   first=0x022DE777  https://docs.unity3d.com/Packag
+  key=0x66 n=1   first=0x02324547  https://docs.unity3d.com/Packages/c
+  key=0x66 n=1   first=0x02323CD8  https://docs.unity3d.com/Packages/co
+  key=0x66 n=1   first=0x02324082  https://docs.unity3d.com/Packages/com.u
+  key=0x00 n=1   first=0x023575B6  https://docs.unity3d.com/Packages/com.unity.animation
+  key=0x00 n=1   first=0x023577E6  https://docs.unity3d.com/Packages/com.unity.animation.rigging@1.1
+  key=0x00 n=2   first=0x0235766F  https://docs.unity3d.com/Packages/com.unity.animation.rigging@1.1/manu
+  key=0x00 n=1   first=0x023577E6  https://docs.unity3d.com/Packages/com.unity.animation.rigging@1.1/manual/RiggingWorkflow.html#bone-renderer-component
+  key=0x00 n=1   first=0x0235766F  https://docs.unity3d.com/Packages/com.unity.animation.rigging@1.1/manual/RiggingWorkflow.html#rig-builder-component
+  key=0x00 n=1   first=0x023575B6  https://docs.unity3d.com/Packages/com.unity.animation.rigging@1.1/manual/RiggingWorkflow.html#rig-component
+  key=0x00 n=1   first=0x02357728  https://docs.unity3d.com/Packages/com.unity.animation.rigging@1.1/manual/RiggingWorkflow.html#rig-transform
+  key=0x00 n=2   first=0x023574EC  https://docs.unity3d.com/Packages/com.unity.animation.rigging@1.1/manual/constraints/MultiAimConstraint.html
+  key=0x66 n=1   first=0x023239CE  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/api/Cinemachine.CinemachineCameraOffset.html
+  key=0x66 n=2   first=0x02324ECA  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/api/Cinemachine.CinemachineIndependentImpulseListener.html
+  key=0x66 n=2   first=0x02324B84  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/api/Cinemachine.CinemachineTriggerAction.html
+  key=0x66 n=2   first=0x02324C14  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/api/Cinemachine.GroupWeightManipulator.html
+  key=0x66 n=1   first=0x02324607  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/man
+  key=0x66 n=1   first=0x02324B06  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/Ci
+  key=0x66 n=1   first=0x02324275  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/Cinem
+  key=0x66 n=1   first=0x02324327  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/Cinemachin
+  key=0x66 n=1   first=0x02324F7B  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/Cinemachine
+  key=0x66 n=1   first=0x02324B06  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineAlternativeInput.html
+  key=0x66 n=1   first=0x02323B64  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineBlendListCamera.html
+  key=0x66 n=1   first=0x02324966  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineBlending.html
+  key=0x66 n=2   first=0x02323BFD  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineBrainProperties.html
+  key=0x66 n=1   first=0x02323CD8  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineClearShot.html
+  key=0x66 n=1   first=0x02323D83  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineCollid
+  key=0x66 n=1   first=0x02323D83  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineCollider.html
+  key=0x66 n=2   first=0x02324C91  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineCollisionImpulseSource.html
+  key=0x66 n=2   first=0x02323E1F  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineConfiner.html
+  key=0x66 n=2   first=0x02323E9E  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineConfiner2D.html
+  key=0x66 n=2   first=0x02323F2F  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineDollyCart.html
+  key=0x66 n=2   first=0x02323FAA  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineExternalCamera.html
+  key=0x66 n=1   first=0x02324082  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineFollowZoom.html
+  key=0x66 n=1   first=0x0232412B  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineFreeLook
+  key=0x66 n=1   first=0x0232412B  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineFreeLook.html
+  key=0x66 n=2   first=0x02324D15  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineImpulseFixedSignals.html
+  key=0x66 n=1   first=0x02324DB9  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineImpulseListen
+  key=0x66 n=1   first=0x02324DB9  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineImpulseListener.html
+  key=0x66 n=2   first=0x02324E50  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineImpulseSourceOverview.html
+  key=0x66 n=2   first=0x023241BE  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineMixingCamera.html
+  key=0x66 n=1   first=0x02324A4C  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineNoiseProfiles.html
+  key=0x66 n=1   first=0x02324275  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachinePath.html
+  key=0x66 n=1   first=0x02324327  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachinePixelPerfect.html
+  key=0x66 n=2   first=0x02323A55  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineRecomposer.html
+  key=0x66 n=1   first=0x0232446B  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineS
+  key=0x66 n=2   first=0x023243BB  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineSmoothPath.html
+  key=0x66 n=1   first=0x0232446B  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineStateDrivenCamera.html
+  key=0x66 n=1   first=0x02324547  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineStoryboard.html
+  key=0x66 n=1   first=0x02324607  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineTargetGroup.html
+  key=0x66 n=1   first=0x023246AE  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineVirtualCam
+  key=0x66 n=1   first=0x023246AE  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineVirtualCamera.html
+  key=0x66 n=1   first=0x02324F7B  https://docs.unity3d.com/Packages/com.unity.cinemachine@2.9/manual/CinemachineVolumeSettings.html
+  key=0x00 n=2   first=0x022DE60B  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/OnScreen.html#on-screen-buttons
+  key=0x00 n=2   first=0x022DE697  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/OnScreen.html#on-screen-sticks
+  key=0x00 n=1   first=0x022DE273  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/PlayerInput.html
+  key=0x00 n=2   first=0x022DE2EF  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/PlayerInputManager.html
+  key=0x00 n=1   first=0x022DE777  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/Touch.html#touch-simulation
+  key=0x00 n=2   first=0x022DE4CA  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/UISupport.html#multiplayer-uis
+  key=0x00 n=1   first=0x022DE45A  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/UISupport.html#setting-up-ui-input
+  key=0x00 n=1   first=0x022DE576  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/UISupport.html#v
+  key=0x00 n=1   first=0x022DE576  https://docs.unity3d.com/Packages/com.unity.inputsystem@1.7/manual/UISupport.html#virtual-mouse-cursor-control
+  key=0x00 n=1   first=0x023174C8  https://docs.unity3d.com/Packages/com.unity.render-pipelines.universal@latest/index.html?subfolder=/manual/2DLightProperties.html
+  key=0x00 n=1   first=0x0231766C  https://docs.unity3d.com/Packages/com.unity.render-pipelines.universal@latest/index.html?subfolder=/manual/2DRendererData_overview.html
+  key=0x00 n=1   first=0x02317321  https://docs.unity3d.com/Packages/com.unity.render-pipelines.universal@latest/index.html?subfolder=/manual/2d-pixelperfect.html%23properties
+  key=0x00 n=7   first=0x02375C88  https://github.com/Unity-Technologies/NavMeshComponents#documentation-draft
+  key=0x00 n=5   first=0x022DBBDA  https://go.microsoft.com/fwlink/?linkid=14202
+  key=0x59 n=1   first=0x000AD5C7  https://go.microsoft.com/fwlink/?linkid=2132227
+  key=0x00 n=2   first=0x017F9EE4  https://kybernetik.com.au
+  key=0x00 n=1   first=0x023383F8  https://kybernetik.com.au/animancer/api/
+  key=0x00 n=1   first=0x02338127  https://kybernetik.com.au/animancer/api/Anim
+  key=0x66 n=1   first=0x023719F0  https://kybernetik.com.au/animancer/api/Animancer.FSM/Stat
+  key=0x66 n=3   first=0x023719F0  https://kybernetik.com.au/animancer/api/Animancer.FSM/StateBehaviour
+  key=0x66 n=3   first=0x023719A0  https://kybernetik.com.au/animancer/api/Animancer.FSM/StateExtensions
+  key=0x66 n=3   first=0x02371A3F  https://kybernetik.com.au/animancer/api/Animancer.FSM/StateMachine_1
+  key=0x66 n=3   first=0x02371A9B  https://kybernetik.com.au/animancer/api/Animancer.FSM/StateMachine_2
+  key=0x00 n=1   first=0x02337AF3  https://kybernetik.com.au/animancer/api/Animancer/AnimancerComponent
+  key=0x00 n=3   first=0x023382CC  https://kybernetik.com.au/animancer/api/Animancer/AnimancerTransitionAsset
+  key=0x00 n=2   first=0x02338321  https://kybernetik.com.au/animancer/api/Animancer/AnimancerTransitionAssetBase
+  key=0x00 n=3   first=0x0233837A  https://kybernetik.com.au/animancer/api/Animancer/AnimancerTransitionAsset_1
+  key=0x00 n=2   first=0x023383F8  https://kybernetik.com.au/animancer/api/Animancer/ClipTransitionAsset
+  key=0x00 n=2   first=0x02338482  https://kybernetik.com.au/animancer/api/Animancer/ControllerTransitionAsset
+  key=0x00 n=2   first=0x02337E4C  https://kybernetik.com.au/animancer/api/Animancer/DirectionalAnimationSet
+  key=0x00 n=2   first=0x02337EDE  https://kybernetik.com.au/animancer/api/Animancer/DirectionalAnimationSet8
+  key=0x00 n=1   first=0x02337F9A  https://kybernetik.com.au/animancer/api/Animancer/ExposedPropertyTa
+  key=0x00 n=1   first=0x02337F9A  https://kybernetik.com.au/animancer/api/Animancer/ExposedPropertyTable
+  key=0x00 n=2   first=0x0233850D  https://kybernetik.com.au/animancer/api/Animancer/Float1ControllerTransitionAsset
+  key=0x00 n=2   first=0x0233859E  https://kybernetik.com.au/animancer/api/Animancer/Float2ControllerTransitionAsset
+  key=0x00 n=2   first=0x0233862F  https://kybernetik.com.au/animancer/api/Animancer/Float3ControllerTransitionAsset
+  key=0x00 n=2   first=0x02337B68  https://kybernetik.com.au/animancer/api/Animancer/HybridAnimancerComponent
+  key=0x00 n=2   first=0x0233868F  https://kybernetik.com.au/animancer/api/Animancer/LinearMixerTransitionAsset
+  key=0x00 n=2   first=0x02338715  https://kybernetik.com.au/animancer/api/Animancer/ManualMixerTransitionAsset
+  key=0x00 n=2   first=0x0233879B  https://kybernetik.com.au/animancer/api/Animancer/MixerTransition2DAsset
+  key=0x00 n=1   first=0x02337DAE  https://kybernetik.com.au/animancer/api/Animancer/NamedAnimancerComponent
+  key=0x00 n=1   first=0x017F9EE4  https://kybernetik.com.au/animancer/api/Animancer/OptionalWar
+  key=0x00 n=3   first=0x017F9EE4  https://kybernetik.com.au/animancer/api/Animancer/OptionalWarningT
+  key=0x00 n=2   first=0x02338819  https://kybernetik.com.au/animancer/api/Animancer/PlayableAssetTransitionAsset
+  key=0x00 n=1   first=0x02338054  https://kybernetik.com.au/animancer/api/Animancer/RedirectRootMotionT
+  key=0x00 n=2   first=0x02338054  https://kybernetik.com.au/animancer/api/Animancer/RedirectRootMotionToCharacterController
+  key=0x00 n=1   first=0x02338127  https://kybernetik.com.au/animancer/api/Animancer/RedirectRootMotionToRigidbody
+  key=0x00 n=2   first=0x023381B5  https://kybernetik.com.au/animancer/api/Animancer/RedirectRootMotionToTransform
+  key=0x00 n=3   first=0x02337FFF  https://kybernetik.com.au/animancer/api/Animancer/RedirectRootMotion_1
+  key=0x00 n=1   first=0x02337C81  https://kybernetik.com.au/animancer/api/Animancer/SoloAnimation
+  key=0x00 n=2   first=0x02338217  https://kybernetik.com.au/animancer/api/Animancer/SpriteRendererTextureSwap
+  key=0x3B n=1   first=0x000D3EA7  https://payment.yostar.co.jp/product?id=cq3p6brhl8o5o06udbk0
+  key=0xFF n=1   first=0x000D3EE3  https://www.baidu.com/rnnji
+  key=0x00 n=32  first=0x0230CAC1  https://www.newtonsoft.com/jsonschema
+  key=0x66 n=7   first=0x02312511  https://www.newtonsoft.com/jsonschema
+  key=0x00 n=6   first=0x0230E05B  https://www.nuget.org/packages/Newtonsoft.Json.Bson
+  --- SUSPECT tokens ----
+  key=0xB5 off=0x000C173A tok=yostar         win=åù­Ð+PPPL]]  	NP-PPLNPPL]NPPLN["http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/
+  key=0xB5 off=0x000C1749 tok=/api/state     win=åù­Ð+PPPL]]  	NP-PPLNPPL]NPPLN["http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/
+  key=0xB5 off=0x000C173A tok=yostar         win=PPLNPPL]NPPLN["http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/
+  key=0xB5 off=0x000C1749 tok=/api/state     win=PPLNPPL]NPPLN["http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/
+  key=0xB5 off=0x000C173A tok=yostar         win=http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/api/state"]Ù¥ß£ÿ´ù£¾¤ÿµùÙËºÍÎ¾ÈÍ»Ë0F60D6;M
+  key=0xB5 off=0x000C1749 tok=/api/state     win=http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/api/state","http://test-ba.yostar.net:5210/api/state"]Ù¥ß£ÿ´ù£¾¤ÿµùÙËºÍÎ¾ÈÍ»Ë0F60D6;M
+  key=0x25 off=0x000D3DC9 tok=yostar         win=XX[GYYG	 E		¬°°´þëë³³³ê³÷ê«¶£ëëõýýüëª¥©¡·´¥§¡OSSWHIK^wkkolzffba(`||x{2''https://account.yostar.cn/cn-ba/collect±­­©ªãöö¸ºº¶¬·­÷ ¶ª­¸«÷º·öº·ô»¸öª±¸«
+  key=0xFC off=0x000D3DF0 tok=yostar         win=2EPQ2,$$%2s|pxnm|~x®²²¶µ£¿¿»¸ñ¹¥¥¡¢ëþþ±­­©ªãöö¸ºº¶¬·­÷ ¶ª­¸«÷º·öº·ô»¸öº¶µµ¼º­https://account.yostar.cn/cn-ba/shared_listQDD	
+EEED-1156
+  key=0xB9 off=0x000D3E2D tok=bluearchive    win=ÿò³ÿò±þý³ÿóððùÿè-1156jj$&&*0+1k<*61$7k&+j&+h'$j6-$7 !),61FZZ^]LKGO@ CGGZ IAX M@https://bluearchive.jp/help?data=ÙÌÌÍÎÍÌÌÌ£¿
+  key=0x3B off=0x000D3EB7 tok=yostar         win=OL ON NN!==9:sff-&*:g<' =0z-g*&$f(*"(.,:f2y4	2x4f$('<(%f2{4g!=$%https://payment.yostar.co.jp/product?id=cq3p6brhl8o5o06udbk0¬°°´·þëë³³³ê¦¥­

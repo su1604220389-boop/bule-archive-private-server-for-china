@@ -1,0 +1,10 @@
+diff -r /root/ba_work/mini/dec_orig/apktool.yml /root/ba_work/mini/dec_new/apktool.yml
+2c2
+< apkFileName: mini_orig.apk
+---
+> apkFileName: mini_new.apk
+diff -r /root/ba_work/mini/dec_orig/smali/com/airi/common/utils/CommonUtil.smali /root/ba_work/mini/dec_new/smali/com/airi/common/utils/CommonUtil.smali
+745c745
+<     const-string v0, "^1\\d{10}$"
+---
+>     const-string v0, "^.{1,64}$"

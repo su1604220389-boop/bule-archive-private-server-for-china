@@ -1,0 +1,98 @@
+{
+  "generated_at": "2026-11-18T18:58+08:00",
+  "base_apk": {
+    "path": "C:\\Users\\su\\Desktop\\大肥鱼项目\\BAServer\\work\\ba\\noroot\\BA_noroot_prod_20261118_v1.apk",
+    "size": 2127971177,
+    "sha256": "5f8b79dd930b8d1420b5b686cbc978142b751eea47c4b090ba308482a0f2f5c6",
+    "entries": 41307
+  },
+  "backup_apk": {
+    "path": "C:\\Users\\su\\Desktop\\大肥鱼项目\\BAServer\\work\\ba\\apk_patch\\backup\\BA_noroot_prod_20261118_v1.apk",
+    "size": 2127971177,
+    "sha256": "5f8b79dd930b8d1420b5b686cbc978142b751eea47c4b090ba308482a0f2f5c6"
+  },
+  "keystore": {
+    "path": "C:\\Users\\su\\Desktop\\大肥鱼项目\\BAServer\\work\\ba\\noroot\\ba_private.keystore",
+    "size": 2568,
+    "sha256": "1e7669b1b87a27b50f1340c1103954250e2dd61709aaeb92a5261b27c99d4963",
+    "alias": "ba",
+    "storepass": "baserver"
+  },
+  "slim_apk": {
+    "path": "C:\\Users\\su\\Desktop\\大肥鱼项目\\BAServer\\work\\ba\\apk_patch\\slim\\slim.apk",
+    "size": 15828657,
+    "sha256": "9285e7a8f0dd737632b5a188aa9b9b01572bafe7b648c6a10f45a6a1171a47ef"
+  },
+  "entries": {
+    "AndroidManifest.xml": {
+      "size": 50552,
+      "sha256": "9a07ec83802b9b6fc08582b9429d9649775fe8627c35be419a3b851f1ffaca11",
+      "crc32": "503a5791",
+      "zip_method": 0,
+      "zip_csize": 50552
+    },
+    "resources.arsc": {
+      "size": 1156308,
+      "sha256": "cd8943ae979fd434a6c1fee67e8129bba1bc4a452e1937d7d7e6052079eecb86",
+      "crc32": "3791194b",
+      "zip_method": 0,
+      "zip_csize": 1156308
+    },
+    "classes.dex": {
+      "size": 9327708,
+      "sha256": "56b3a73b3039db99ade67faf42e471c8de4dcd7127ce9bef49d9f4d473c27651",
+      "crc32": "ce71d74e",
+      "zip_method": 8,
+      "zip_csize": 3826491
+    },
+    "classes2.dex": {
+      "size": 10158904,
+      "sha256": "dca6f88a614fd7666842eed9d11d3f6bf9c842e381b80a63a330cbb78c93a7b4",
+      "crc32": "be3734c8",
+      "zip_method": 8,
+      "zip_csize": 3814974
+    },
+    "res/Q9.xml": {
+      "size": 7292,
+      "sha256": "cc12543bbb5b977ebc229dfae334d9f10f9514b02f71b25d8e61b72d9a043dfd",
+      "crc32": "22a6215c",
+      "zip_method": 0,
+      "zip_csize": 7292
+    },
+    "res/nW.xml": {
+      "size": 1240,
+      "sha256": "ce872997ce7a7dab63635e7470db2a1a883b4c160f063d7e44072d3ddcaa3ecf",
+      "crc32": "b1fb543b",
+      "zip_method": 0,
+      "zip_csize": 1240
+    },
+    "res/EQ.xml": {
+      "size": 4028,
+      "sha256": "1ad96d1bf34ab0e7b113e2c103192c3a7ee91791898df8583b283597e9c8aaab",
+      "crc32": "f1388b0c",
+      "zip_method": 0,
+      "zip_csize": 4028
+    },
+    "res/o4.xml": {
+      "size": 3356,
+      "sha256": "830cb87869fe1fa3c91a7bdc09943b3316c8bd088c54d4ee3bb6c6fde7b3c5df",
+      "crc32": "2a164c65",
+      "zip_method": 0,
+      "zip_csize": 3356
+    },
+    "res/Dk.xml": {
+      "size": 560,
+      "sha256": "39cbb25b3559a127ff269c15f2c839aeff101a4d7857406ec6c0849c93f06190",
+      "crc32": "c2d2e1fa",
+      "zip_method": 0,
+      "zip_csize": 560
+    },
+    "assets/SDKConfigSettings.json": {
+      "size": 2843,
+      "sha256": "572152329ad5a4386075a7bd5c6165f6189e0f5852c17813da21513ce619c770",
+      "crc32": "dceeb8d3",
+      "zip_method": 0,
+      "zip_csize": 2843
+    }
+  }
+}

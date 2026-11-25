@@ -1,0 +1,1245 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""account_auth_probe.py v6 -- /api/* bridge.
+
+Modes (file /www/wwwroot/bapatch/cn_bridge_mode.txt):
+    bridge   : handle via decrypt / synthesize path
+    forward  : raw passthrough to 127.0.0.1:5000 with original URI
+
+Experiment switch (file /www/wwwroot/bapatch/cn_bridge_exp.txt):
+    ''                    : normal (synthetic Account_Auth, plain response)
+    'plain'               : same as ''
+    'resultstate0'        : inject ResultState:0 into Account_Auth response
+    'resultstate1'        : inject ResultState:1
+    'experror'            : reply the legacy Error envelope, no Shittim call
+    'decrypt+plain'       : decrypt real client request, inject SessionKey, plain response
+    'decrypt+encresp1'    : ... encrypted response, whole JSON inside ciphertext
+    'decrypt+encresp2'    : ... encrypted response, fragment only, Protocol as NUMBER outside
+    'decrypt+encresp3'    : ... encrypted response, fragment only, Protocol as NAME outside
+"""
+import http.server
+import socketserver
+import json
+import re
+import time
+import base64
+import os
+import struct
+import gzip
+import threading
+import urllib.request
+import urllib.error
+import hashlib
+import sys
+
+sys.path.insert(0, '/www/wwwroot/bapatch/tools')
+import cn_cipher  # noqa: E402
+import cn_wire  # noqa: E402
+import cn_inner  # noqa: E402
+import cn_inner27  # noqa: E402
+import cn_nick  # noqa: E402
+
+# ============================ account service (L2) ============================
+ACCT_SVC_FILE = '/www/wwwroot/bapatch/cn_account_svc.txt'
+ACCT_LOG = '/www/wwwroot/bapatch/logs/acct_svc.log'
+ACCT_DB = os.environ.get('BA_ACCT_DB', '/www/wwwroot/bapatch/data/accounts.db')
+
+_SVC_INST = None
+_LAST_SID = None
+
+
+def acct_svc_on():
+    """1 = enabled (default), 0 = disabled."""
+    try:
+        return open(ACCT_SVC_FILE).read().strip() == '1'
+    except Exception:
+        return True
+
+
+def acct_log(msg):
+    try:
+        with open(ACCT_LOG, 'a') as f:
+            f.write('%s %s\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), msg))
+    except Exception:
+        pass
+
+
+def acct_fallback(msg):
+    """Never fail silently: every fallback leaves a trace."""
+    acct_log('[acct] fallback to hardcoded: ' + msg)
+
+
+def _svc():
+    global _SVC_INST
+    if _SVC_INST is None:
+        os.environ.setdefault('BA_ACCOUNT_DB', ACCT_DB)
+        import account_service as _m
+        _SVC_INST = _m.default_service()
+        _SVC_INST.init_schema()
+    return _SVC_INST
+
+
+def _req_dict(rec):
+    """Best-effort json of the decrypted request fragment."""
+    frag = (rec.get('req_frag_head') or '').strip()
+    if not frag:
+        return {}
+    body = frag.lstrip(',')
+    if not body.startswith('{'):
+        body = '{' + body
+    if not body.endswith('}'):
+        body = body + '}'
+    try:
+        return json.loads(body)
+    except Exception:
+        return {}
+
+
+def acct_apply_to_auth(inner, rec):
+    """Replace AccountDB + SessionKey with the real per-account values."""
+    global _LAST_SID
+    if not acct_svc_on():
+        rec['acct_svc'] = 'off'
+        return inner
+    try:
+        svc = _svc()
+        req = _req_dict(rec)
+        if not req:
+            req = {'DevId': rec.get('req_DevId') or '', 'Token': rec.get('req_Token') or ''}
+        ident = svc.identify(req)
+        acct = svc.get_or_create_account(ident)
+        sess = svc.issue_session_key(acct)
+        adb = svc.build_account_db_for(acct)
+        sk = sess.to_dict() if hasattr(sess, 'to_dict') else sess
+        inner['AccountDB'] = adb
+        inner['SessionKey'] = sk
+        _LAST_SID = adb.get('ServerId')
+        rec['acct_svc'] = 'on'
+        rec['acct_server_id'] = _LAST_SID
+        rec['acct_mxtoken'] = sk.get('MxToken')
+    except Exception as e:
+        acct_fallback('%s: %s' % (type(e).__name__, e))
+        rec['acct_svc'] = 'fallback:' + type(e).__name__
+        rec['acct_err'] = repr(e)
+    return inner
+
+
+def acct_writeback(rec, **fields):
+    """Persist nickname / call_name. Write failure must NOT affect the response."""
+    if not acct_svc_on():
+        return
+    try:
+        sid = _LAST_SID
+        if not sid:
+            rec['acct_wb'] = 'skip:no-session'
+            return
+        _svc().update_account(int(sid), **fields)
+        rec['acct_wb'] = 'ok:%s' % ','.join(fields)
+    except Exception as e:
+        acct_fallback('writeback %s: %s: %s' % (list(fields), type(e).__name__, e))
+        rec['acct_wb'] = 'err:' + type(e).__name__
+        rec['acct_wb_err'] = repr(e)
+
+
+LOG         = '/www/wwwroot/bapatch/logs/api_all_requests.log'
+MODE_FILE   = '/www/wwwroot/bapatch/cn_bridge_mode.txt'
+FORCE_FILE  = '/www/wwwroot/bapatch/cn_bridge_force_reauth.txt'
+EXP_FILE    = '/www/wwwroot/bapatch/cn_bridge_exp.txt'
+CN_RESP_FILE = '/www/wwwroot/bapatch/cn_resp_format.txt'
+CN_FIELD_PATCH_FILE = '/www/wwwroot/bapatch/cn_field_patch.txt'
+CN_CANARY_FILE = '/www/wwwroot/bapatch/cn_canary.txt'
+CN_HASH_FILE = '/www/wwwroot/bapatch/cn_hash_mode.txt'
+CN_PROTO_VAL_FILE = '/www/wwwroot/bapatch/cn_proto_val.txt'
+CN_FLATTEN_FILE = '/www/wwwroot/bapatch/cn_flatten_keys.txt'
+CN_PACKET_WRAP_FILE = '/www/wwwroot/bapatch/cn_packet_wrap.txt'
+CN_WRAP_MODE_FILE = '/www/wwwroot/bapatch/cn_wrap_mode.txt'
+CN_INNER_MIN_FILE = '/www/wwwroot/bapatch/cn_inner_min.txt'
+CN_INNER_SRC_FILE = '/www/wwwroot/bapatch/cn_inner_src.txt'
+CN_REQUESTID_FILE = '/www/wwwroot/bapatch/cn_requestid_mode.txt'
+NAMES_FILE  = '/www/wwwroot/bapatch/tools/protocol_names.txt'
+TARGET_BASE = 'http://127.0.0.1:5000'
+GATEWAY     = 'http://127.0.0.1:5000/api/gateway'
+BOUNDARY    = '----cnbridge'
+
+UID   = '314816420'
+TOKEN = '<REDACTED_TOKEN>'
+ENTER_TICKET = base64.b64encode(('%s/%s' % (UID, TOKEN)).encode()).decode()
+CLIENT_KEY = base64.b64encode(bytes(range(32))).decode()
+CLIENT_IV  = base64.b64encode(bytes(range(16))).decode()
+
+HOP = ('host', 'content-length', 'connection', 'accept-encoding', 'transfer-encoding')
+
+BUILTIN_NAMES = [
+    "Account_CheckNexon", "Account_Auth", "Account_Auth2", "Account_Create",
+    "Account_VerifyForYostar", "Account_CheckYostar", "Account_GetTutorial",
+    "Account_SetTutorial", "Account_PassCheck", "Account_Nickname",
+    "Account_GetIdCardInformation", "Account_Logout",
+    "Queuing_GetCryptoKeys", "Queuing_GetAuthTicket", "Queuing_GetTicket",
+    "Queuing_Ping", "Queuing_GetTicketGL", "Queuing_ProcessWaitingQueue",
+    "Queuing_GetWaitingQueue",
+    "NetworkTime_Sync", "Session_Info", "System_Version", "System_ServerTime",
+    "Player_GetSetting", "Player_SetSetting", "Content_GetList", "Loading_Complete",
+    "Shop_List", "Shop_BuyGoods", "Character_List", "Mission_List", "Mail_List",
+    "Mail_Receive", "Cafe_GetInfo", "Clan_List", "Friend_GetList", "Raid_GetInfo",
+    "TimeAttack_GetInfo", "MomoTalk_GetOutline", "Scenario_List", "Sticker_List",
+    "Event_GetList", "Campaign_GetList",
+]
+
+NUM_TO_NAME = {}   # filled from our own knowledge of numbers we have seen
+
+
+def b32md5(name):
+    return base64.b32encode(hashlib.md5(name.encode('utf-16-le')).digest()).decode().rstrip('=')
+
+
+NAME_TABLE = {}
+
+# tokens verified from the client's own captured requests (base32(md5(utf-16-le(name))))
+EXTRA_TOKENS = {
+    'AHTQLQI65FWJGGGK4KL5AEF57A': 'Account_Auth',
+    'GVDSNCHUMIOS44NDTZM6ZPDDVQ': 'Account_Nickname',
+    'K3SF6XS7VK7JFL7T2M2WFELUSY': 'Account_CallName',
+    'FZGO2J3INCGSND5AGKDLB7EBSY': 'Account_CheckNexon',
+    'P3OMQZD2FXV7XXEGA7ETCXIJ4Q': 'Account_LoginSync',
+}
+
+
+def load_names():
+    global NAME_TABLE
+    t = {}
+    names = list(BUILTIN_NAMES)
+    try:
+        for line in open(NAMES_FILE):
+            n = line.strip()
+            if n and not n.startswith('#'):
+                names.append(n)
+    except Exception:
+        pass
+    for n in set(names):
+        try:
+            t[b32md5(n)] = n
+        except Exception:
+            pass
+    NAME_TABLE = t
+    return len(t)
+
+
+def mode():
+    try:
+        return open(MODE_FILE).read().strip() or 'bridge'
+    except Exception:
+        return 'bridge'
+
+
+HTTP_SUFFIXES = ('+http500', '+http200empty', '+http404', '+http200')
+
+
+def _raw_exp():
+    try:
+        return open(EXP_FILE).read().strip()
+    except Exception:
+        return ''
+
+
+def exp_flag():
+    v = _raw_exp()
+    for suf in HTTP_SUFFIXES:
+        if v.endswith(suf):
+            return v[:-len(suf)]
+    return v
+
+
+def http_override():
+    v = _raw_exp()
+    for suf in HTTP_SUFFIXES:
+        if v.endswith(suf):
+            return suf[1:]
+    return None
+
+
+def cn_resp_format():
+    # 'shittim' (default): {"protocol":"Account_Auth","packet":"<json string>"}
+    # 'cn_envelope'      : {"protocol":"<base32 md5>","packet":"<b64 [u32 len][gzip(json)]>"}
+    try:
+        v = open(CN_RESP_FILE).read().strip()
+    except Exception:
+        return 'shittim'
+    return v or 'shittim'
+
+
+def cn_field_patch_mode():
+    # 'off' (default) | 'on' | 'on_alt'
+    # on     : FunctionClose = []
+    # on_alt : FunctionClose = false
+    try:
+        v = open(CN_FIELD_PATCH_FILE).read().strip()
+    except Exception:
+        return 'off'
+    return v or 'off'
+
+
+def apply_field_patch(obj, rec=None):
+    # Adds CN-only AccountAuthResponse fields that Shittim never emits.
+    # Types are INFERRED (see report/41 section 3.1); only missing keys are added.
+    m = cn_field_patch_mode()
+    if m not in ('on', 'on_alt') or not isinstance(obj, dict):
+        return obj
+    func_close = {} if m == 'on' else []
+    defaults = {
+        # AccountAuthResponse fields we never emitted
+        'Desc': '',
+        'FunctionClose': func_close,
+        'DailyRecordDBs': [],
+        'MinimumVersion': 0,
+        'IsDevelopment': False,
+        'BattleValidation': False,
+        'UpdateRequired': False,
+        # ResponsePacket base-class collections we never emitted
+        'MissionProgressDBs': [],
+        'EventMissionProgressDBDict': {},
+        'BattlePassMissionProgressDBDict': {},
+    }
+    added = []
+    for k, v in defaults.items():
+        if k not in obj:
+            obj[k] = v
+            added.append(k)
+    if rec is not None:
+        rec['field_patch'] = m
+        rec['field_patch_added'] = added
+    return obj
+
+
+def cn_requestid_mode():
+    # 'random' (default) | 'echo'  (echo = reuse a UUID found in the client request, if any)
+    try:
+        v = open(CN_REQUESTID_FILE).read().strip()
+    except Exception:
+        return 'random'
+    return v or 'random'
+
+
+UUID_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+
+
+def pick_requestid(rec):
+    if cn_requestid_mode() == 'echo':
+        frag = rec.get('req_frag_head') or ''
+        m = UUID_RE.search(frag)
+        if m:
+            rec['requestid_source'] = 'echo-from-request'
+            return m.group(0)
+        rec['requestid_source'] = 'echo-fallback-random(no uuid in request)'
+        return None
+    rec['requestid_source'] = 'random'
+    return None
+
+
+def cn_inner_src():
+    # 'shittim' (default) = today's Shittim-derived 38-key inner
+    # 'spec26'            = report/49 CN DTO inner (26 keys incl _probe)
+    try:
+        v = open(CN_INNER_SRC_FILE).read().strip()
+    except Exception:
+        return 'shittim'
+    return v or 'shittim'
+
+
+def cn_inner_min_on():
+    try:
+        v = open(CN_INNER_MIN_FILE).read().strip()
+    except Exception:
+        return False
+    return v == 'on'
+
+
+MIN_KEEP = [
+    'Protocol', 'ServerTimeTicks', 'ServerNotification',
+    'AccountId', 'AccountDB', 'SessionKey', 'EncryptedUID', 'CurrentVersion',
+    'StaticOpenConditions',
+    'MxToken', '<REDACTED_TOKEN>', 'ServerId',
+    'Desc', 'FunctionClose', 'DailyRecordDBs', 'MinimumVersion', 'IsDevelopment',
+    'BattleValidation', 'UpdateRequired', 'MissionProgressDBs',
+    'EventMissionProgressDBDict', 'BattlePassMissionProgressDBDict',
+    '_probe',
+]
+
+
+def apply_min_inner(obj, rec=None):
+    if not cn_inner_min_on() or not isinstance(obj, dict):
+        return obj
+    out = {k: obj[k] for k in MIN_KEEP if k in obj}
+    if rec is not None:
+        rec['inner_min'] = True
+        rec['inner_min_dropped'] = sorted(set(obj) - set(out))
+    return out
+
+
+def cn_wrap_mode():
+    # 'existing' (default) keeps today's behaviour; 'cn_enc_b64' = real CN wire format
+    try:
+        v = open(CN_WRAP_MODE_FILE).read().strip()
+    except Exception:
+        return 'existing'
+    return v or 'existing'
+
+
+def cn_packet_wrap():
+    # 'raw_gzip' (default, current): packet = base64([u32 len][gzip(inner)])
+    # 'json_string'           : packet = json text of inner (no base64, no gzip)
+    try:
+        v = open(CN_PACKET_WRAP_FILE).read().strip()
+    except Exception:
+        return 'raw_gzip'
+    return v or 'raw_gzip'
+
+
+def cn_proto_val():
+    # 'name' -> "Account_Auth"; 'token' -> base32 md5 form (default keeps current behaviour)
+    try:
+        v = open(CN_PROTO_VAL_FILE).read().strip()
+    except Exception:
+        return 'token'
+    return v or 'token'
+
+
+def cn_flatten_on():
+    try:
+        v = open(CN_FLATTEN_FILE).read().strip()
+    except Exception:
+        return False
+    return v == 'on'
+
+
+def apply_flatten(obj, rec=None):
+    # Keep the nested SessionKey object AND add flat duplicates.
+    # CN metadata has no 'SessionKey' key at all; SessionDB exposes MxToken flat.
+    if not cn_flatten_on() or not isinstance(obj, dict):
+        return obj
+    sk = obj.get('SessionKey')
+    if not isinstance(sk, dict):
+        return obj
+    added = []
+    for k in ('MxToken', '<REDACTED_TOKEN>'):
+        if k in sk and k not in obj:
+            obj[k] = sk[k]
+            added.append(k)
+    sid = None
+    adb = obj.get('AccountDB')
+    if isinstance(adb, dict):
+        sid = adb.get('ServerId')
+    if sid is None:
+        sid = obj.get('AccountServerId') or sk.get('AccountServerId')
+    if sid is not None and 'ServerId' not in obj:
+        obj['ServerId'] = sid
+        added.append('ServerId')
+    if rec is not None:
+        rec['flatten_added'] = added
+    return obj
+
+
+def cn_hash_mode():
+    # 'request' (default) echoes the client's own Hash back; 'off' does not.
+    try:
+        v = open(CN_HASH_FILE).read().strip()
+    except Exception:
+        return 'request'
+    return v or 'request'
+
+
+def cn_canary_on():
+    # 'on' injects a plaintext-layer canary into the cn_envelope outer JSON.
+    try:
+        v = open(CN_CANARY_FILE).read().strip()
+    except Exception:
+        return False
+    return v == 'on'
+
+
+def want_force_reauth():
+    return os.path.exists(FORCE_FILE)
+
+
+def clear_force():
+    try:
+        os.remove(FORCE_FILE)
+    except Exception:
+        pass
+
+
+def post_gateway(obj, timeout=40):
+    mx = cn_cipher.build_mx(obj)
+    body = (('--%s\r\nContent-Disposition: form-data; name="mx"; filename="p.mx"\r\n'
+             'Content-Type: application/octet-stream\r\n\r\n') % BOUNDARY).encode() + mx \
+           + ('\r\n--%s--\r\n' % BOUNDARY).encode()
+    req = urllib.request.Request(GATEWAY, data=body, method='POST')
+    req.add_header('Content-Type', 'multipart/form-data; boundary=%s' % BOUNDARY)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except Exception as e:
+        return 0, ('{"error":%r}' % str(e)).encode()
+
+
+def unwrap_gateway_response(raw):
+    try:
+        j = json.loads(raw.decode('utf-8', 'replace'))
+    except Exception:
+        return None, None
+    pkt = j.get('packet')
+    if isinstance(pkt, str):
+        try:
+            return j.get('protocol'), json.loads(pkt)
+        except Exception:
+            return j.get('protocol'), pkt
+    return j.get('protocol'), pkt
+
+
+class Session(object):
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.session_key = None
+        self.account_id = None
+        self.created = 0
+
+
+SESSION = Session()
+
+
+def ensure_session(rec):
+    with SESSION.lock:
+        if want_force_reauth():
+            rec['force_reauth'] = True
+            SESSION.session_key = None
+            SESSION.account_id = None
+            clear_force()
+        if SESSION.session_key is not None:
+            rec['session_source'] = 'cache'
+            return SESSION.session_key, SESSION.account_id
+        req = {"Protocol": "Account_CheckNexon", "EnterTicket": ENTER_TICKET,
+               "ClientGeneratedKey": CLIENT_KEY, "ClientGeneratedIV": CLIENT_IV}
+        rec['synth_checknexon'] = req
+        t0 = time.time()
+        code, raw = post_gateway(req)
+        rec['checknexon_code'] = code
+        rec['checknexon_ms'] = int((time.time() - t0) * 1000)
+        rec['checknexon_resp_len'] = len(raw)
+        _, obj = unwrap_gateway_response(raw)
+        if not isinstance(obj, dict) or not obj.get('SessionKey'):
+            rec['checknexon_err'] = 'no SessionKey'
+            rec['checknexon_resp'] = raw[:300].decode('utf-8', 'replace')
+            return None, None
+        SESSION.session_key = obj['SessionKey']
+        SESSION.account_id = obj.get('AccountId') or obj['SessionKey'].get('AccountServerId')
+        SESSION.created = int(time.time())
+        rec['session_source'] = 'fresh'
+        rec['session_key'] = SESSION.session_key
+        rec['account_id'] = SESSION.account_id
+        return SESSION.session_key, SESSION.account_id
+
+
+def parse_cn_multipart(raw):
+    out = {}
+    for name in ('protocol', 'encode', 'packet'):
+        key = ('name="%s"' % name).encode()
+        i = raw.find(key)
+        if i < 0:
+            continue
+        j = raw.find(b'\r\n\r\n', i)
+        if j < 0:
+            continue
+        k = raw.find(b'\r\n--', j + 4)
+        if k < 0:
+            continue
+        out[name] = raw[j + 4:k].decode('latin1').strip()
+    return out
+
+
+def encrypt_variant(inner_obj, variant, req_key):
+    """Return (packet_b64, plaintext_that_was_encrypted).
+
+    variant 1: WHOLE json inside ciphertext, Protocol as NUMBER
+    variant 2: fragment only inside ciphertext (starts with ','), client prepends {"Protocol":<num>
+    variant 3: WHOLE json inside ciphertext, but Protocol written as the NAME string
+    """
+    key = req_key.encode('ascii', 'replace') if isinstance(req_key, str) else req_key
+    if not key:
+        key = None
+    if variant == 3:
+        o = dict(inner_obj)
+        o['Protocol'] = '__NAME__'
+        full = json.dumps(o, ensure_ascii=False, separators=(',', ':'))
+        full = full.replace('"__NAME__"', '%s' % json.dumps(o.get('Protocol')))
+        inner = cn_cipher.build_inner(full, key=key)
+        return cn_cipher.wrap_packet(inner), full
+    full = json.dumps(inner_obj, ensure_ascii=False, separators=(',', ':'))
+    if variant == 1:
+        inner = cn_cipher.build_inner(full, key=key)
+        return cn_cipher.wrap_packet(inner), full
+    idx = full.find(',')
+    frag = full[idx:] if idx >= 0 else full
+    inner = cn_cipher.build_inner(frag, key=key)
+    return cn_cipher.wrap_packet(inner), frag
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
+    def _log(self, rec):
+        try:
+            with open(LOG, 'a') as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+
+    def _send(self, code, body, ctype='application/json; charset=utf-8', opts=None):
+        try:
+            self.send_response(code)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(body)))
+            if opts and opts.get('no_transform'):
+                self.send_header('Cache-Control', 'no-transform')
+            if opts and opts.get('close'):
+                self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(body)
+            if opts and opts.get('close'):
+                self.close_connection = True
+        except Exception:
+            pass
+
+    def _log_ingress(self):
+        try:
+            cl = self.headers.get('Content-Length')
+            ua = self.headers.get('User-Agent') or '-'
+            rid = self.headers.get('REQUEST-ID') or self.headers.get('Request-Id') or '-'
+            line = '%s | %-4s %-40s | CL=%-6s | UA=%-24s | RID=%s\n' % (
+                time.strftime('%Y-%m-%d %H:%M:%S'), self.command, (self.path or '-')[:40],
+                cl if cl else '-', ua[:24], rid)
+            with open('/www/wwwroot/bapatch/logs/all_paths.log', 'a') as f:
+                f.write(line)
+        except Exception:
+            pass
+
+    def _handle(self):
+        self._log_ingress()
+        n = int(self.headers.get('Content-Length') or 0)
+        body = self.rfile.read(n) if n else b''
+        m = mode()
+        rec = {'t': time.strftime('%Y-%m-%d %H:%M:%S'), 'from': self.client_address[0],
+               'method': self.command, 'path': self.path, 'mode': m,
+               'headers': dict(self.headers.items()),
+               'body_len': len(body),
+               'body_printable': ''.join(chr(c) if 32 <= c < 127 else '.' for c in body[:1024])}
+        t0 = time.time()
+        try:
+            if m == 'forward':
+                code, resp, ctype = self._forward(body)
+                rec['served'] = 'forward'
+            else:
+                code, resp, ctype = self._bridge(body, rec)
+                rec['served'] = 'bridge'
+        except Exception as e:
+            rec['err'] = repr(e)
+            code, resp, ctype = 500, json.dumps({'error': repr(e)}).encode(), 'application/json'
+        ov = http_override()
+        if ov:
+            rec['http_override'] = ov
+            if ov == 'http500':
+                code = 500
+            elif ov == 'http404':
+                code = 404
+            elif ov == 'http200empty':
+                code, resp = 200, b''
+            elif ov == 'http200':
+                code = 200
+        rec['ms'] = int((time.time() - t0) * 1000)
+        rec['resp_code'] = code
+        rec['resp_len'] = len(resp)
+        rec['resp_printable'] = ''.join(chr(c) if 32 <= c < 127 else '.' for c in resp[:512])
+        opts = rec.pop('_send_opts', None)
+        self._log(rec)
+        self._send(code, resp, ctype, opts)
+
+    def _forward(self, body):
+        url = TARGET_BASE + self.path
+        req = urllib.request.Request(url, data=body if body else None, method=self.command)
+        for k, v in self.headers.items():
+            if k.lower() not in HOP:
+                req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.status, r.read(), r.headers.get('Content-Type', 'application/octet-stream')
+        except urllib.error.HTTPError as e:
+            return e.code, (e.read() if e else b''), 'application/octet-stream'
+
+    # ---------- response helpers ----------
+    def _cn_envelope(self, proto_name, inner_obj, rec):
+        inner_obj = apply_field_patch(inner_obj, rec)
+        inner_obj = apply_flatten(inner_obj, rec)
+        if cn_wrap_mode() in ('cn_enc_b64', 'cn_enc_b64_probe', 'real_captured', 'e0_proto_swap', 'r01_update', 'e1_token', 'e2_nickname', 'e3_bare_dto', 'e4_strict_dto', 'a_proto_int', 'b_proto_str'):
+            return self._cn_enc_b64(proto_name, inner_obj, rec)
+        if cn_proto_val() == 'name':
+            proto32 = proto_name
+            rec['proto_val'] = 'name'
+        else:
+            proto32 = base64.b32encode(hashlib.md5(proto_name.encode('utf-16-le')).digest()).decode().rstrip('=')
+            rec['proto_val'] = 'token'
+        payload_text = json.dumps(inner_obj, ensure_ascii=False, separators=(',', ':'))
+        payload = payload_text.encode('utf-8')
+        if cn_packet_wrap() == 'json_string':
+            wire = payload_text
+            rec['packet_wrap'] = 'json_string'
+        else:
+            wire = cn_cipher.wrap_packet(payload)
+            rec['packet_wrap'] = 'raw_gzip'
+        rec['cn_envelope'] = True
+        rec['cn_env_protocol'] = proto32
+        rec['cn_env_payload_len'] = len(payload)
+        rec['cn_env_wire_len'] = len(wire)
+        out = {}
+        if cn_canary_on():
+            out["_cn_probe"] = "ZZCANARY7391QKVB"
+            rec["canary"] = True
+        out["protocol"] = proto32
+        out["packet"] = wire
+        if cn_canary_on():
+            out["_cn_probe_tail"] = "ZZTAIL7391QKVB"
+            rec["canary_tail"] = True
+        if cn_hash_mode() == 'request':
+            hv = rec.get("req_Hash")
+            if hv is not None:
+                out["Hash"] = hv
+                rec["hash_echo"] = hv
+                rec["hash_echo_type"] = type(hv).__name__
+        return 200, json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode(), \
+            'application/json; charset=utf-8'
+
+    def _cn_decode_any(self, packet_b64, proto_str):
+        """Try cn_cipher first, fall back to a plain [u32][gzip][iv|ct|key] decode."""
+        try:
+            r = cn_cipher.decode_packet(packet_b64, proto_str)
+            frag = r.get('fragment') or ''
+            if frag:
+                return frag
+        except Exception as e1:
+            self._last_decode_err = repr(e1)
+        try:
+            import base64 as _b64, gzip as _gz
+            from cryptography.hazmat.primitives.ciphers import Cipher as _C, algorithms as _A, modes as _M
+            raw = _b64.b64decode(packet_b64 + '=' * ((4 - len(packet_b64) % 4) % 4))
+            inner = _gz.decompress(raw[4:])
+            iv, ct, key = inner[:16], inner[16:-32], inner[-32:]
+            d = _C(_A.AES(key), _M.CBC(iv)).decryptor()
+            pt = d.update(ct) + d.finalize()
+            pad = pt[-1]
+            if 1 <= pad <= 16 and pt.endswith(bytes([pad]) * pad):
+                pt = pt[:-pad]
+            return pt.decode('utf-8', 'replace')
+        except Exception as e2:
+            self._last_decode_err = repr(e2)
+            return ''
+
+    def _generic_protocol_response(self, proto_str, packet_b64, rec, name=None):
+        """Any protocol we do not implement -> decrypt the request, read Hash>>32, answer with a valid envelope."""
+        frag = self._cn_decode_any(packet_b64, proto_str)
+        rec['gen_frag_len'] = len(frag)
+        if not frag:
+            rec['gen_dec_err'] = getattr(self, '_last_decode_err', 'empty')
+        num = None
+        m = re.search(r'"Hash"\s*:\s*(\d+)', frag)
+        if m:
+            num = int(m.group(1)) >> 32
+        rec['gen_protocol'] = num
+        if rec.get('req_Hash') and num is None:
+            try:
+                num = int(rec['req_Hash']) >> 32
+                rec['gen_protocol'] = num
+            except Exception:
+                pass
+        if num is None:
+            return None
+        if num == 90004:
+            from datetime import datetime as _d9
+            _n9 = _d9.now()
+            _t9 = int((_n9 - _d9(1, 1, 1)).total_seconds()) * 10_000_000 + _n9.microsecond * 10
+            obj = {"Protocol": 90004,
+                   "ServerTimeTicks": _t9,
+                   "ServerNotification": 0,
+                   "MissionProgressDBs": [],
+                   "EventMissionProgressDBDict": {},
+                   "BattlePassMissionProgressDBDict": {},
+                   "StaticOpenConditions": dict(cn_inner.STATIC_OPEN_CONDITIONS),
+                   "Notices": [],
+                   "Events": [],
+                   "Issues": [],
+                   "Banners": [],
+                   "GachaProbabilityDisplay": False,
+                   "ContentLock": False,
+                   "GachaPeriodDisplay": False,
+                   "RaidPeriodDisplay": False,
+                   "GuidePopup": {}}
+            rec['gen_kind'] = 'management-90004'
+            rec['fallback'] = 'generic-envelope'
+            return self._cn_send_envelope(name or 'Management_Data', obj, rec)
+        if num == 24000:
+            from datetime import datetime as _d24
+            _n24 = _d24.now()
+            _t24 = int((_n24 - _d24(1, 1, 1)).total_seconds()) * 10_000_000 + _n24.microsecond * 10
+            obj = {"Protocol": 24000, "ServerTimeTicks": _t24, "ServerNotification": 0,
+                   "MissionProgressDBs": [], "EventMissionProgressDBDict": {},
+                   "BattlePassMissionProgressDBDict": {}, "StaticOpenConditions": dict(cn_inner.STATIC_OPEN_CONDITIONS),
+                   "AcademyDB": {"LastUpdate": "2026-11-14T00:00:00",
+                                 "ZoneVisitCharacterDBs": [],
+                                 "ZoneScheduleGroupRecords": {"10000": [], "10001": [], "10002": [], "10003": [], "10004": [], "10005": [], "10006": [], "10007": [], "10008": [], "10009": [], "10010": [], "10011": [], "10012": [], "10013": [], "10014": [], "10015": [], "10016": [], "10017": [], "10018": [], "10019": [], "10020": [], "10021": [], "10022": [], "10023": [], "10024": [], "10025": [], "10026": [], "10027": [], "10028": [], "10029": [], "10030": [], "10031": [], "10032": [], "10033": [], "10034": [], "10035": [], "10036": [], "10037": [], "10038": [], "10039": [], "10040": [], "10041": [], "10042": [], "10043": [], "10044": [], "10045": [], "10046": [], "10047": [], "10048": [], "10049": [], "10050": [], "10051": [], "10052": [], "10053": [], "10054": [], "10055": [], "10056": [], "10057": [], "10058": [], "10059": [], "10060": [], "10061": [], "10062": [], "10063": [], "10064": [], "10065": [], "10066": [], "10067": [], "10068": [], "10069": [], "10070": [], "10071": [], "10072": [], "10073": [], "10074": [], "10075": [], "10076": [], "10077": [], "10078": [], "10079": [], "10080": [], "10081": [], "10082": [], "10083": [], "10084": [], "10085": [], "10086": [], "10087": [], "10088": [], "10089": [], "10090": [], "10091": [], "10092": [], "10093": [], "10094": [], "10095": [], "10096": [], "10097": [], "10098": [], "10100": [], "10101": [], "10102": [], "10103": [], "10104": [], "10105": [], "10106": [], "10107": [], "10108": [], "10109": [], "10110": [], "10111": [], "10112": [], "10113": [], "10114": [], "10115": [], "10116": [], "10117": [], "10118": [], "10119": [], "10120": [], "10121": [], "10122": [], "10123": [], "10124": [], "10125": [], "10126": [], "10127": [], "10128": [], "10129": [], "10130": [], "10131": [], "10132": [], "10133": [], "10134": [], "10135": [], "10136": [], "13000": [], "13001": [], "13002": [], "13003": [], "13004": [], "13005": [], "13006": [], "13007": [], "13008": [], "13009": [], "13010": [], "13011": [], "13012": [], "13013": [], "13014": [], "16000": [], "16001": [], "16002": [], "16003": [], "16004": [], "16005": [], "16006": [], "16007": [], "16008": [], "16009": [], "16010": [], "16011": [], "16012": [], "16013": [], "16014": [], "16015": [], "16016": [], "16017": [], "16018": [], "16019": [], "19017": [], "20000": [], "20001": [], "20002": [], "20003": [], "20004": [], "20005": [], "20006": [], "20007": [], "20008": [], "20009": [], "20010": [], "20011": [], "20012": [], "20013": [], "20014": [], "20015": [], "20016": [], "20017": [], "20018": [], "20019": [], "20020": [], "20021": [], "20022": [], "20023": [], "20024": [], "20025": [], "20026": [], "20027": [], "20028": [], "20029": [], "20030": [], "20031": [], "20032": [], "20033": [], "20034": [], "20035": [], "20036": [], "20037": [], "20038": [], "20039": [], "20040": [], "20041": [], "20042": [], "20043": [], "20044": [], "20045": [], "20046": [], "20047": [], "20048": [], "20049": [], "20050": [], "20051": [], "20052": [], "20053": [], "20054": [], "20055": [], "20056": [], "23000": [], "23001": [], "23002": [], "23003": [], "23004": [], "23005": [], "23006": [], "23007": [], "23008": [], "26000": [], "26001": [], "26002": [], "26003": [], "26004": [], "26005": [], "26006": [], "26007": [], "26008": [], "26009": [], "26010": [], "26011": [], "26012": [], "26013": [], "26014": [], "26015": []}},
+                   "AcademyLocationDBs": [
+                       {"LocationId": 1, "Rank": 1, "Exp": 0},
+                       {"LocationId": 7, "Rank": 1, "Exp": 0},
+                       {"LocationId": 11, "Rank": 1, "Exp": 0},
+                       {"LocationId": 12, "Rank": 1, "Exp": 0},
+                       {"LocationId": 13, "Rank": 1, "Exp": 0},
+                       {"LocationId": 14, "Rank": 1, "Exp": 0},
+                       {"LocationId": 15, "Rank": 1, "Exp": 0},
+                       {"LocationId": 16, "Rank": 1, "Exp": 0},
+                       {"LocationId": 17, "Rank": 1, "Exp": 0},
+                       {"LocationId": 18, "Rank": 1, "Exp": 0},
+                       {"LocationId": 19, "Rank": 1, "Exp": 0},
+                   ]}
+            rec['gen_kind'] = 'academy-24000-e2'
+            rec['fallback'] = 'generic-envelope'
+            return self._cn_send_envelope(name or 'Academy_GetInfo', obj, rec)
+        if num in (1019, 1017):
+            obj = {"Protocol": 1019, "ServerTimeTicks": 0, "ServerNotification": 0,
+                   "MissionProgressDBs": [], "EventMissionProgressDBDict": {},
+                   "BattlePassMissionProgressDBDict": {}, "StaticOpenConditions": [],
+                   "Responses": [], "SkillCutInOption": ""}
+            rec['gen_kind'] = 'loginsync-%d' % num
+            obj['Protocol'] = num
+        else:
+            from datetime import datetime as _dt
+            _now = _dt.now()
+            _ticks = int((_now - _dt(1, 1, 1)).total_seconds()) * 10_000_000 + _now.microsecond * 10
+            obj = {"Protocol": num,
+                   "ServerTimeTicks": _ticks,
+                   "ServerNotification": 0,
+                   "MissionProgressDBs": [],
+                   "EventMissionProgressDBDict": {},
+                   "BattlePassMissionProgressDBDict": {},
+                   "StaticOpenConditions": []}
+            rec['gen_kind'] = 'min+base'
+        rec['fallback'] = 'generic-envelope'
+        return self._cn_send_envelope(name or 'Unknown', obj, rec)
+
+    def _cn_send_envelope(self, proto_name, obj, rec):
+        """Encode exactly the object we were given (no cn_wrap_mode re-building)."""
+        import uuid as _uuid
+        rid = str(_uuid.uuid4())
+        wire, plain, key = cn_wire.wrap_response(proto_name, obj, rid)
+        rec['wrap_mode'] = 'direct_envelope'
+        rec['enc_requestid'] = rid
+        rec['enc_inner_keys'] = len(obj) if isinstance(obj, dict) else 0
+        rec['enc_plain_len'] = len(plain)
+        rec['enc_body_len'] = len(wire)
+        rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+        try:
+            open('/www/wwwroot/_ba_state/last_direct_envelope_plain.txt', 'w').write(plain)
+        except Exception:
+            pass
+        return 200, wire, 'text/plain; charset=utf-8'
+
+    def _cn_enc_b64(self, proto_name, inner_obj, rec):
+        import uuid as _uuid
+        if cn_wrap_mode() in ('a_proto_int', 'b_proto_str'):
+            pv = 1002 if cn_wrap_mode() == 'a_proto_int' else 'Account_Auth'
+            inner = cn_inner27.build(pv)
+            inner = acct_apply_to_auth(inner, rec)
+            rid = str(_uuid.uuid4())
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', inner, rid)
+            rec['wrap_mode'] = cn_wrap_mode()
+            rec['ab_protocol_value'] = pv
+            rec['ab_inner_keys'] = len(inner)
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['canary_skipped'] = True
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                tag = 'A' if cn_wrap_mode() == 'a_proto_int' else 'B'
+                open('/www/wwwroot/_ba_state/round18_%s_wire.bin' % tag, 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round18_%s_plain.txt' % tag, 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e4_strict_dto':
+            # strict DTO: ONLY members that really exist on AccountAuthResponse / ResponsePacket.
+            # 'Protocol' lives on the HttpMessage wrapper layer -> must NOT appear here.
+            inner = cn_inner.build(with_canary=False)
+            inner.pop('Protocol', None)
+            inner.pop('_probe', None)
+            if cn_canary_on():
+                inner['Desc'] = 'ZZCANARY7391QKVB'
+                rec['canary_in_desc'] = True
+            rid = str(_uuid.uuid4())
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', inner, rid)
+            rec['wrap_mode'] = 'e4_strict_dto'
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round17_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round17_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e3_bare_dto':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            plaintext = json.dumps(inner, ensure_ascii=False, separators=(',', ':'))
+            wire, plain, key = cn_wire.wrap_raw(plaintext)
+            rec['wrap_mode'] = 'e3_bare_dto'
+            rec['e3_keys'] = len(inner)
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round16_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round16_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e2_nickname':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            inner['AccountDB']['Nickname'] = 'Sensei'
+            rid = str(_uuid.uuid4())
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', inner, rid)
+            rec['wrap_mode'] = 'e2_nickname'
+            rec['e2_nickname'] = 'Sensei'
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round15_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round15_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e1_token':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            rid = str(_uuid.uuid4())
+            TOKEN = '<REDACTED_TOKEN>'
+            wire, plain, key = cn_wire.wrap_response(TOKEN, inner, rid)
+            rec['wrap_mode'] = 'e1_token'
+            rec['e1_protocol'] = TOKEN
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round14_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round14_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'r01_update':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            inner['UpdateRequired'] = True
+            rid = str(_uuid.uuid4())
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', inner, rid)
+            rec['wrap_mode'] = 'r01_update'
+            rec['r01_UpdateRequired'] = True
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round10_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round10_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e0_proto_swap':
+            raw = open('/www/wwwroot/_ba_state/cn_real_capture/resp_1.body', 'rb').read().strip()
+            real_outer, real_inner, _k, _pl = cn_wire.unwrap_response(raw)
+            rid = real_outer.get('requestid')
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', real_inner, requestid=rid)
+            rec['wrap_mode'] = 'e0_proto_swap'
+            rec['e0_requestid'] = rid
+            rec['e0_real_packet'] = (real_outer.get('packet') or '')[:200]
+            rec['e0_plain_len'] = len(plain)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round9_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round9_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'real_captured':
+            wire = open('/www/wwwroot/_ba_state/cn_real_capture/resp_1.body', 'rb').read().strip()
+            rec['wrap_mode'] = 'real_captured'
+            rec['real_captured_bytes'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round8_wire_actual.bin', 'wb').write(wire)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'cn_enc_b64_probe':
+            inner = {"Protocol": -1, "Reason": "ZZPROBEREASON", "ErrorCode": 1018}
+            proto_name = "Error"
+            rec['probe_mode'] = True
+        elif cn_inner_src() == 'spec26':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            rec['inner_src'] = 'spec26'
+        else:
+            inner = dict(inner_obj)
+            rec['inner_src'] = 'shittim'
+        if cn_canary_on() and not rec.get('probe_mode') and rec.get('inner_src') != 'spec26':
+            inner['_probe'] = 'ZZCANARY7391QKVB'
+            rec['canary_inner'] = True
+        if rec.get('inner_src') != 'spec26':
+            inner = apply_min_inner(inner, rec)
+        rid = pick_requestid(rec) or str(_uuid.uuid4())
+        wire, plain, key = cn_wire.wrap_response(proto_name, inner, rid)
+        rec['wrap_mode'] = 'cn_enc_b64'
+        rec['enc_requestid'] = rid
+        rec['enc_inner_keys'] = len(inner)
+        rec['enc_plain_len'] = len(plain)
+        rec['enc_body_len'] = len(wire)
+        rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True,
+                             'no_transform': len(wire) >= 1000}
+        try:
+            open('/www/wwwroot/_ba_state/round7_wire_actual.bin', 'wb').write(wire)
+            open('/www/wwwroot/_ba_state/round7_plain_actual.txt', 'w').write(plain)
+            rec['wire_dumped'] = True
+        except Exception as e:
+            rec['wire_dump_err'] = repr(e)
+        return 200, wire, 'text/plain; charset=utf-8'
+
+    def _json_ok(self, proto_name, inner_obj):
+        inner_obj = apply_field_patch(inner_obj)
+        out = {"protocol": proto_name,
+               "packet": json.dumps(inner_obj, ensure_ascii=False, separators=(',', ':'))}
+        return 200, json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode(), \
+            'application/json; charset=utf-8'
+
+    def _json_encrypted(self, proto_name, inner_obj, exp, req_key, rec):
+        variant = 1
+        if exp.endswith('2'):
+            variant = 2
+        elif exp.endswith('3'):
+            variant = 3
+        pkt, plain = encrypt_variant(inner_obj, variant, req_key)
+        rec['encresp'] = True
+        rec['encresp_key'] = req_key
+        rec['encresp_variant'] = variant
+        rec['encresp_inner_len'] = len(pkt)
+        rec['encresp_plain_len'] = len(plain)
+        rec['encresp_prefix'] = plain[:40]
+        out = {"protocol": proto_name, "packet": pkt}
+        return 200, json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode(), \
+            'application/json; charset=utf-8'
+
+    # ---------- main bridge ----------
+    def _bridge(self, body, rec):
+        fields = parse_cn_multipart(body)
+        proto_str = fields.get('protocol', '')
+        packet_b64 = fields.get('packet', '')
+        if not packet_b64 and b'packet=' in body:
+            try:
+                from urllib.parse import parse_qs
+                # base64 '+' would be decoded as space by parse_qs -> protect it first
+                q = parse_qs(body.decode('utf-8', 'replace').replace('+', '%2B'))
+                proto_str = (q.get('protocol') or [''])[0] or proto_str
+                packet_b64 = (q.get('packet') or [''])[0] or packet_b64
+                rec['form_encoded'] = True
+            except Exception as e:
+                rec['form_parse_err'] = repr(e)
+        exp = exp_flag()
+        rec['protocol_raw'] = proto_str
+        rec['exp'] = exp
+        name = NAME_TABLE.get(proto_str) or EXTRA_TOKENS.get(proto_str)
+        rec['protocol_name'] = name
+
+        if exp == 'experror':
+            env = json.dumps({"protocol": "Error",
+                              "packet": json.dumps({"Protocol": -1, "ErrorCode": 500,
+                                                    "ServerTimeTicks": 639302206010000000},
+                                                   separators=(',', ':'))},
+                             separators=(',', ':'))
+            return 200, env.encode(), 'application/json; charset=utf-8'
+
+        if name is None:
+            rec['unknown_protocol'] = True
+            got = self._generic_protocol_response(proto_str, packet_b64, rec)
+            if got is not None:
+                return got
+            code, resp, ctype = self._forward(body)
+            rec['fallback'] = 'forward-unknown-protocol'
+            return code, resp, ctype
+
+        want_decrypt = exp.startswith('decrypt+')
+
+        # -------- path A: decrypt the real client request --------
+        if want_decrypt and packet_b64:
+            try:
+                r = cn_cipher.decode_packet(packet_b64, proto_str)
+            except Exception as e:
+                rec['decrypt_err'] = repr(e)
+                r = None
+            if r is not None:
+                rec['decrypted'] = True
+                rec['req_key'] = r.get('key')
+                rec['req_iv'] = r.get('iv')
+                rec['req_inner_len'] = r.get('inner_len')
+                rec['req_frag_len'] = r.get('frag_len')
+                req_json = r.get('json')
+                if isinstance(req_json, dict):
+                    rec['req_keys'] = sorted(req_json.keys())
+                    try:
+                        rec['req_frag_head'] = str(r.get('fragment'))[:600]
+                    except Exception:
+                        rec['req_frag_head'] = ''
+                    rec['req_Token'] = req_json.get('Token')
+                    rec['req_Hash'] = req_json.get('Hash')
+                    sk, aid = ensure_session(rec)
+                    if sk is None:
+                        return 500, json.dumps({'error': 'checknexon failed'}).encode(), 'application/json'
+                    injected = 'SessionKey' not in req_json
+                    if injected:
+                        req_json['SessionKey'] = sk
+                    rec['session_injected'] = injected
+                    code, raw = post_gateway(req_json)
+                    rec['auth_code'] = code
+                    rec['auth_resp_len'] = len(raw)
+                    gp, obj = unwrap_gateway_response(raw)
+                    rec['auth_protocol'] = gp
+                    if not isinstance(obj, dict):
+                        return 502, raw, 'application/json'
+                    rec['auth_keys'] = sorted(obj.keys())[:25]
+                    rec['resp_name'] = name
+                    if cn_resp_format() == 'cn_envelope':
+                        return self._cn_envelope(name, obj, rec)
+                    if exp.endswith('encresp1') or exp.endswith('encresp2') or exp.endswith('encresp3'):
+                        return self._json_encrypted(name, obj, exp, r.get('key'), rec)
+                    return self._json_ok(name, obj)
+                rec['decrypt_json_none'] = True
+            rec['fallback'] = 'synthetic'
+        # -------- path B: synthetic --------
+        if name in ('Account_CheckNexon',):
+            sk, aid = ensure_session(rec)
+            if sk is None:
+                return 500, json.dumps({'error': 'checknexon failed'}).encode(), 'application/json'
+            obj = {"Protocol": 1014, "ResultState": 1, "SessionKey": sk, "AccountId": aid}
+            return self._json_ok('Account_CheckNexon', obj)
+        if name in ('Account_Auth', 'Account_Auth2'):
+            sk, aid = ensure_session(rec)
+            if sk is None:
+                return 500, json.dumps({'error': 'checknexon failed'}).encode(), 'application/json'
+            req = {"Protocol": "Account_Auth", "SessionKey": sk}
+            rec['synth_auth'] = req
+            code, raw = post_gateway(req)
+            rec['auth_code'] = code
+            rec['auth_resp_len'] = len(raw)
+            gp, obj = unwrap_gateway_response(raw)
+            if not isinstance(obj, dict):
+                return 502, raw, 'application/json'
+            rec['auth_keys'] = sorted(obj.keys())[:25]
+            rec['exp_result_before'] = obj.get('ResultState')
+            if cn_resp_format() == 'cn_envelope':
+                return self._cn_envelope('Account_Auth', obj, rec)
+            if exp in ('resultstate0', 'resultstate1'):
+                obj['ResultState'] = 0 if exp == 'resultstate0' else 1
+            return self._json_ok('Account_Auth', obj)
+        # -------- path C0: Account_CallName (1010) --------
+        if name == 'Account_CallName':
+            call = '111'
+            try:
+                r0 = cn_cipher.decode_packet(packet_b64, proto_str)
+                frag0 = r0.get('fragment') or ''
+                rec['call_frag_len'] = len(frag0)
+                m0 = re.search(r'"CallName"\s*:\s*"([^"]*)"', frag0)
+                if m0:
+                    call = m0.group(1)
+                    rec['call_from_request'] = True
+            except Exception as e:
+                rec['call_dec_err'] = repr(e)
+            rec['callname'] = call
+            acct_writeback(rec, call_name=call)
+            obj = cn_nick.build_callname_response(call, nickname='111', protocol=1010)
+            rec['call_resp_accountdb_fields'] = len(obj['AccountDB'])
+            return self._cn_send_envelope('Account_CallName', obj, rec)
+
+        # -------- path C: Account_Nickname (1001) --------
+        if name in ('Account_Nickname', 'Account_CallName'):
+            frag = rec.get('req_frag_head') or ''
+            if not frag:
+                try:
+                    r1 = cn_cipher.decode_packet(packet_b64, proto_str)
+                    frag = r1.get('fragment') or ''
+                    rec['nick_frag_len'] = len(frag)
+                except Exception as e:
+                    rec['nick_dec_err'] = repr(e)
+            m = re.search(r'"Nickname"\s*:\s*"([^"]*)"', frag)
+            nick = m.group(1) if m else '111'
+            rec['nick_from_request'] = bool(m)
+            rec['nickname'] = nick
+            acct_writeback(rec, nickname=nick)
+            obj = cn_nick.build_nickname_response(nick, protocol=1001)
+            rec['nick_resp_keys'] = len(obj)
+            rec['nick_accountdb_fields'] = len(obj['AccountDB'])
+            return self._cn_send_envelope('Account_Nickname', obj, rec)
+
+        # -------- path D: generic non-empty fallback (never 200 + 0 bytes) --------
+        proto_int = None
+        try:
+            h = rec.get('req_Hash')
+            if isinstance(h, int) and h > 0:
+                proto_int = h >> 32
+        except Exception:
+            proto_int = None
+        if proto_int:
+            obj = cn_nick.build_min_response(proto_int)
+            rec['fallback'] = 'min-envelope'
+            rec['fallback_protocol'] = proto_int
+            proto_name = name if (name and name != 'Unknown') else 'Account_Nickname'
+            return self._cn_send_envelope(proto_name, obj, rec)
+        got = self._generic_protocol_response(proto_str, packet_b64, rec, name=name)
+        if got is not None:
+            rec['known_other_upgraded'] = True
+            return got
+        code, resp, ctype = self._forward(body)
+        rec['fallback'] = 'forward-known-other'
+        return code, resp, ctype
+
+    do_GET = _handle
+    do_POST = _handle
+    do_PUT = _handle
+
+    def log_message(self, *a):
+        pass
+
+
+if __name__ == '__main__':
+    n = load_names()
+    print('protocol name table =', n, 'entries')
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(('127.0.0.1', 9097), Handler) as s:
+        print('bridge v6 listening on 127.0.0.1:9097 mode=', mode(), 'exp=', exp_flag())
+        s.serve_forever()

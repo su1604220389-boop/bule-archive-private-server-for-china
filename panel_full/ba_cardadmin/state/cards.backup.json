@@ -1,0 +1,49 @@
+{
+    "cards": {
+        "11111111111": {
+            "devices": [
+                "09a4d0ab0ee93616",
+                "ce8ffeb7d08cfb36"
+            ],
+            "expire": 0,
+            "bind_one": false,
+            "kind": "paid",
+            "max_devices": 0,
+            "last_used_at": 1795115732,
+            "status": "active"
+        },
+        "12222222222": {
+            "devices": [
+                "ce8ffeb7d08cfb36",
+                "7fcd15b3fc6ebb70",
+                "b0fff61fb371f1e9",
+                "c16554ca0551ef97",
+                "1f295123367d1c1e",
+                "29366aab678663c2",
+                "8583b78a755d464b",
+                "e64c2a8a68c21852"
+            ],
+            "expire": 0,
+            "bind_one": false,
+            "kind": "paid",
+            "max_devices": 0,
+            "last_used_at": 1795173744,
+            "status": "active"
+        },
+        "<REDACTED_CONTACT>": {
+            "devices": [
+                "ce8ffeb7d08cfb36",
+                "d5ba58444f30cc2c",
+                "8583b78a755d464b",
+                "29366aab678663c2",
+                "e64c2a8a68c21852"
+            ],
+            "expire": 0,
+            "bind_one": false,
+            "kind": "free",
+            "max_devices": 0,
+            "last_used_at": 1795186249,
+            "status": "active"
+        }
+    }
+}

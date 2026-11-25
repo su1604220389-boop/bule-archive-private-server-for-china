@@ -1,0 +1,100 @@
+# ============================================================================
+#  BA MITM —— dto1：state-api(DTO B) / gsqc-api(DTO A) / static(404) 三个 server
+#  依据：global-metadata.dat 逆向 —— 两个 /api/state 是不同 DTO；GetApiServerInfo 遍历 Servers
+#  证书锁定：ssl_certificate 必须永远指向 <CERT_PATH>（见 README_CA_LOCK.txt）
+#  body 全部走文件（alias），不用 return 内联，避免转义
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# server 1: state-api / stateqc-api  → DTO B (3 字段，Servers 指向 gsqc/gs-api)
+# default_server 只留在这里
+# ---------------------------------------------------------------------------
+server {
+    listen 127.0.0.1:8443 ssl default_server;
+    http2 on;
+    server_name state-api.bluearchive-cn.com stateqc-api.bluearchive-cn.com;
+
+    ssl_certificate     <CERT_PATH>;
+    ssl_certificate_key <CERT_PATH>;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 10m;
+
+    access_log /www/wwwlogs/ba_mitm.log;
+    access_log /www/wwwlogs/ba_raw.log ba_raw;
+    error_log  /www/wwwlogs/ba_mitm.error.log;
+
+    location = /api/state {
+        alias /www/wwwroot/_ba_state/state-api/api-state.json;
+        default_type "application/json; charset=utf-8";
+        add_header Cache-Control "no-store" always;
+        access_log /www/wwwlogs/ba_raw.log ba_raw;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        client_max_body_size 32m;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# server 2: gsqc-api / gs-api  → DTO A (ServerInfoConnectionGroupData)
+# ---------------------------------------------------------------------------
+server {
+    listen 127.0.0.1:8443 ssl;
+    http2 on;
+    server_name gsqc-api.bluearchive-cn.com gs-api.bluearchive-cn.com;
+
+    ssl_certificate     <CERT_PATH>;
+    ssl_certificate_key <CERT_PATH>;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 10m;
+
+    access_log /www/wwwlogs/ba_mitm.log;
+    access_log /www/wwwlogs/ba_raw.log ba_raw;
+    error_log  /www/wwwlogs/ba_mitm.error.log;
+
+    location = /api/state {
+        alias /www/wwwroot/_ba_state/gw/api-state.json;
+        default_type "application/json; charset=utf-8";
+        add_header Cache-Control "no-store" always;
+        access_log /www/wwwlogs/ba_raw.log ba_raw;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        client_max_body_size 32m;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# server 3: static  → 先保持 404，但必须留日志（看客户端请求的路径与顺序）
+# ---------------------------------------------------------------------------
+server {
+    listen 127.0.0.1:8443 ssl;
+    http2 on;
+    server_name static.bluearchive-cn.com;
+
+    ssl_certificate     <CERT_PATH>;
+    ssl_certificate_key <CERT_PATH>;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 10m;
+
+    access_log /www/wwwlogs/ba_static.log ba_raw;
+    error_log  /www/wwwlogs/ba_mitm.error.log;
+
+    location / {
+        return 404;
+    }
+}

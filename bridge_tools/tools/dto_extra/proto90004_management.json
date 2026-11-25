@@ -1,0 +1,131 @@
+{
+ "_meta": {
+  "schema": "dto_extra/1",
+  "protocol": 90004,
+  "protocol_name": "Management_Data",
+  "segment": "Management",
+  "dto": {
+   "name": "ManagementDataResponse",
+   "namespace": "MX.NetworkProtocol",
+   "base": "ResponsePacket",
+   "base_chain": ["BasePacket", "ResponsePacket"]
+  },
+  "generator": "work/ba/server/deploy/gen90004.py",
+  "purpose": "把 90004 的 Data 外壳（9 键）与 20 字段 DTO 的省略规则固定下来，供 bridge 补丁与 protocol_router 共用。",
+  "evidence": {
+   "capture": "report/_tmp/official_decoded_201/06_90004_api_management_data.response.json（resp_bytes=14124 / 紧凑包体 9691 B / 6 顶层键）",
+   "spec": "work/ba/proto/official_spec.json protocols['90004']（observations=10）",
+   "dto": "work/ba/proto/dto_schema_full_v2.json 的 ManagementDataResponse(10 wireFields) 与 ManagementData(20 fields)",
+   "protocol_map": "work/ba/proto/protocol_map.json Management_Data.resp = ManagementDataResponse（exact/exact）"
+  },
+  "confidence": {
+   "wire_field_set": "high（10/10 官方样本完全相同）",
+   "wire_field_order": "high（10/10 键序一致 ⇒ protojson 按字段号升序）",
+   "field_numbers": "none（抓包与 dto_schema 均不给字段号）",
+   "emitted_data_keys": "high（9/10 键 10/10 出现；另 11 键 0/10 出现）"
+  }
+ },
+ "wire_field_count": 6,
+ "own_field_count": 1,
+ "wire_fields": [
+  {
+   "order": 1, "number": "unknown", "name": "Protocol", "type": "int32",
+   "kind": "scalar", "json_type": "int", "nullable": false, "required": true,
+   "value": 90004, "from": "BasePacket", "evidence": ["capture", "spec"]
+  },
+  {
+   "order": 2, "number": "unknown", "name": "SessionKey", "type": "SessionKey",
+   "kind": "object", "json_type": "object", "nullable": false, "required": true,
+   "from": "BasePacket（取该包体时 10/10 出现）",
+   "children": [
+    {"name": "AccountServerId", "type": "int64", "json_type": "int", "required": true},
+    {"name": "MxToken", "<REDACTED_TOKEN>": "string", "json_type": "str", "required": true, "note": "64 字符 base64"}
+   ],
+   "evidence": ["capture", "spec"]
+  },
+  {
+   "order": 3, "number": "unknown", "name": "ServerTimeTicks", "type": "int64",
+   "kind": "scalar", "json_type": "int", "nullable": false, "required": true,
+   "unit": "dotnet 100ns ticks since 0001-01-01（不截断到整秒）",
+   "from": "ResponsePacket", "evidence": ["capture", "spec"]
+  },
+  {
+   "order": 4, "number": "unknown", "name": "ServerNotification",
+   "type": "ServerNotificationFlag(int32)", "kind": "enum", "json_type": "int",
+   "nullable": false, "required": true, "value": 0,
+   "from": "ResponsePacket", "evidence": ["capture", "spec"]
+  },
+  {
+   "order": 5, "number": "unknown", "name": "RequestId", "type": "string",
+   "kind": "scalar", "json_type": "str", "nullable": false, "required": true,
+   "note": "uuid4；官方 outer requestid 与 inner RequestId 逐字节相同",
+   "from": "BasePacket（dto_schema_full_v2 里缺失，抓包补上）",
+   "evidence": ["capture", "spec"]
+  },
+  {
+   "order": 6, "number": "unknown", "name": "Data", "type": "ManagementData",
+   "kind": "object", "json_type": "object", "nullable": false, "required": true,
+   "from": "ManagementDataResponse（own field）",
+   "note": "缺这个键 = 客户端 ManagementDataResponse.Data 为 null = 立刻 NRE",
+   "evidence": ["capture", "spec", "dto"]
+  }
+ ],
+ "own_fields": [
+  {
+   "name": "Data",
+   "declared_field_count": 20,
+   "emitted_field_count": 9,
+   "emitted_keys": [
+    "Notices", "Events", "Issues", "Banners", "GachaProbabilityDisplay",
+    "GuidePopup", "GachaPeriodDisplay", "RaidPeriodDisplay", "Survey"
+   ],
+   "omitted_keys": [
+    "Maintenance", "ServerStatus", "LatestClientVersion", "LatestAndroidClientVersion",
+    "LatestIosClientVersion", "LatestPCClientVersion", "MarketAppleId",
+    "NotificationBeforeMaintenance", "ContentLock", "DownloadLimitTime", "EnableSQLite"
+   ],
+   "omission_rule": "null / 0 / false / 默认值 的对象与标量被序列化层丢掉；空 list **不**被丢（Issues / GuidePopup 官方恒为 []）；三个对象字段显式发 null",
+   "note": "omitted_keys 与 bridge 现 16 键平铺里多出来的 11 个键完全一致 ⇒ 根因是把 Data 的内层字段抬到了信封层"
+  }
+ ],
+ "data_fields": [
+  {"name": "Notices", "type": "List<unknown>", "json_type": "array",
+   "element_fields": ["NoticeId:int", "StartDate:str", "EndDate:str", "Url:str", "Title:str", "DisplayOrder:int"],
+   "len_observed": 6, "element_type_name": "unknown", "element_evidence": "capture 60/60 元素键集合一致"},
+  {"name": "Events", "type": "List<unknown>", "json_type": "array",
+   "element_fields": ["NoticeId:int", "StartDate:str", "EndDate:str", "Url:str", "Title:str", "DisplayOrder:int"],
+   "len_observed": 14, "element_type_name": "unknown",
+   "note": "元素形状与 Notices 完全相同（140/140），无字段可区分"},
+  {"name": "Issues", "type": "List<unknown>", "json_type": "array", "len_observed": 0,
+   "element_fields": [], "element_type_name": "unknown", "element_evidence": "10/10 恒空数组 ⇒ 元素形状未知"},
+  {"name": "Banners", "type": "List<unknown>", "json_type": "array",
+   "element_fields": ["BannerId:int", "StartDate:str", "EndDate:str", "CdnUrl:str",
+                      "LinkedLobbyBannerId:int?", "BannerType:int?", "LinkUrl:str",
+                      "SurveyId:int", "BannerDisplayType:int", "CreateTime:str"],
+   "len_observed": 7, "element_type_name": "unknown",
+   "element_evidence": "70 元素：5 条 10 键 / 2 条 9 键，缺的是 LinkedLobbyBannerId + BannerType（always=false）"},
+  {"name": "GachaProbabilityDisplay", "type": "List<unknown>", "json_type": "array",
+   "element_fields": ["GachaProbabilityDisplayId:int", "Url:str", "LinkedLobbyBannerId:int", "GachaDisplayTag:int"],
+   "len_observed": 12, "element_type_name": "unknown",
+   "note": "GachaDisplayTag 官方恒 -1（负值合法）"},
+  {"name": "GuidePopup", "type": "List<unknown>", "json_type": "array", "len_observed": 0,
+   "element_fields": [], "element_type_name": "unknown", "element_evidence": "10/10 恒空数组"},
+  {"name": "GachaPeriodDisplay", "type": "unknown", "json_type": "null", "nullable": true,
+   "note": "10/10 显式 null。注意：官方是 null，不是 false —— bridge 现写成 false 是类型错"},
+  {"name": "RaidPeriodDisplay", "type": "unknown", "json_type": "null", "nullable": true,
+   "note": "10/10 显式 null；bridge 现写成 false"},
+  {"name": "Survey", "type": "ManagementSurveyData", "json_type": "null", "nullable": true,
+   "note": "dto_schema 里是对象（SurveyId/PopupType/StartDate/EndDate/FileName/Url/Text/NotifyUrl），抓包里 10/10 是 null"}
+ ],
+ "unknowns": [
+  "字段号（1..6）不可验证：抓包只有键名，dto_schema 也不给 number；本文件只用 order 表达观测顺序",
+  "Notices/Events/Issues/Banners/GachaProbabilityDisplay/GuidePopup 的元素类型名：dto_schema_full_v2.ManagementData 里 5 个字段 type=unknown，元素形状只能从抓包读",
+  "运营数据（公告/Banner/扭蛋公示）的来源：ExcelDB 398 表 0 命中，属运营侧数据",
+  "为什么 Survey 显式发 null 而 Maintenance 直接不出现：两者都是对象字段，省略规则不一致，原因未知"
+ ],
+ "merge": {
+  "protocol_map": "无需改动：Management_Data.resp 已经是 ManagementDataResponse",
+  "dto_schema_full_v2": "ManagementDataResponse 只差 RequestId（抓包 10/10 有）；ManagementData 里 5 个 type=unknown 的字段可用本文件 data_fields 回填",
+  "bridge": "用 work/ba/server/deploy/patch_90004.py --apply（幂等，自带 --verify/--rollback）"
+ }
+}

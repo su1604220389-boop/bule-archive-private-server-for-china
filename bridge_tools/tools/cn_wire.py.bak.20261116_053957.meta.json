@@ -1,0 +1,15 @@
+{
+  "version": "BA_PATCH_REQUESTID v1",
+  "target": "/www/wwwroot/bapatch/tools/cn_wire.py",
+  "backup": "/www/wwwroot/bapatch/tools/cn_wire.py.bak.20261116_053957",
+  "sha256_before": "3a5cb4be537c866e95b4f01d61bc032efeda9809d23288043ed2d1f0c661269a",
+  "sha256_after": "f2dc6ce1e29cf7b5128a6a4ccdf5f923038ecc5e2a73b77ac17b0c19ed5c1441",
+  "switch_file": "/www/wwwroot/bapatch/cn_inner_requestid.txt",
+  "switch_env": "CN_INNER_REQUESTID_FILE",
+  "applied_utc": "2026-11-15T21:39:57Z",
+  "notes": [
+    "inserted 81-line helper block above build_plaintext (line 52)",
+    "statement inserted after line 135: `requestid = requestid or str(uuid.uuid4())`",
+    "build_plaintext now syncs/inserts RequestId before serialising `packet`"
+  ]
+}

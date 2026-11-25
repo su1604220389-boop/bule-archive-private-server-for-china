@@ -1,0 +1,3282 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""account_auth_probe.py v6 -- /api/* bridge.
+
+Modes (file /www/wwwroot/bapatch/cn_bridge_mode.txt):
+    bridge   : handle via decrypt / synthesize path
+    forward  : raw passthrough to 127.0.0.1:5000 with original URI
+
+Experiment switch (file /www/wwwroot/bapatch/cn_bridge_exp.txt):
+    ''                    : normal (synthetic Account_Auth, plain response)
+    'plain'               : same as ''
+    'resultstate0'        : inject ResultState:0 into Account_Auth response
+    'resultstate1'        : inject ResultState:1
+    'experror'            : reply the legacy Error envelope, no Shittim call
+    'decrypt+plain'       : decrypt real client request, inject SessionKey, plain response
+    'decrypt+encresp1'    : ... encrypted response, whole JSON inside ciphertext
+    'decrypt+encresp2'    : ... encrypted response, fragment only, Protocol as NUMBER outside
+    'decrypt+encresp3'    : ... encrypted response, fragment only, Protocol as NAME outside
+"""
+import http.server
+import socketserver
+import json
+import re
+import time
+import base64
+import os
+import struct
+import gzip
+import threading
+import urllib.request
+import urllib.error
+import hashlib
+import sys
+
+sys.path.insert(0, '/www/wwwroot/bapatch/tools')
+import cn_cipher  # noqa: E402
+import cn_wire  # noqa: E402
+import cn_inner  # noqa: E402
+import cn_inner27  # noqa: E402
+import cn_nick  # noqa: E402
+
+# ============================ account service (L2) ============================
+ACCT_SVC_FILE = '/www/wwwroot/bapatch/cn_account_svc.txt'
+ACCT_LOG = '/www/wwwroot/bapatch/logs/acct_svc.log'
+ACCT_DB = os.environ.get('BA_ACCT_DB', '/www/wwwroot/bapatch/data/accounts.db')
+
+_SVC_INST = None
+_LAST_SID = None
+
+
+def acct_svc_on():
+    """1 = enabled (default), 0 = disabled."""
+    try:
+        return open(ACCT_SVC_FILE).read().strip() == '1'
+    except Exception:
+        return True
+
+
+def acct_log(msg):
+    try:
+        with open(ACCT_LOG, 'a') as f:
+            f.write('%s %s\n' % (time.strftime('%Y-%m-%d %H:%M:%S'), msg))
+    except Exception:
+        pass
+
+
+def acct_fallback(msg):
+    """Never fail silently: every fallback leaves a trace."""
+    acct_log('[acct] fallback to hardcoded: ' + msg)
+
+
+def _svc():
+    global _SVC_INST
+    if _SVC_INST is None:
+        os.environ.setdefault('BA_ACCOUNT_DB', ACCT_DB)
+        import account_service as _m
+        _SVC_INST = _m.default_service()
+        _SVC_INST.init_schema()
+    return _SVC_INST
+
+
+def _req_dict(rec):
+    """Best-effort json of the decrypted request fragment."""
+    frag = (rec.get('req_frag_head') or '').strip()
+    if not frag:
+        return {}
+    body = frag.lstrip(',')
+    if not body.startswith('{'):
+        body = '{' + body
+    if not body.endswith('}'):
+        body = body + '}'
+    try:
+        return json.loads(body)
+    except Exception:
+        return {}
+
+
+def acct_apply_to_auth(inner, rec):
+    """Replace AccountDB + SessionKey with the real per-account values."""
+    global _LAST_SID
+    if not acct_svc_on():
+        rec['acct_svc'] = 'off'
+        return inner
+    try:
+        svc = _svc()
+        req = _req_dict(rec)
+        if not req:
+            req = {'DevId': rec.get('req_DevId') or '', 'Token': rec.get('req_Token') or ''}
+        ident = svc.identify(req)
+        acct = svc.get_or_create_account(ident)
+        sess = svc.issue_session_key(acct)
+        adb = svc.build_account_db_for(acct)
+        sk = sess.to_dict() if hasattr(sess, 'to_dict') else sess
+        inner['AccountDB'] = adb
+        inner['SessionKey'] = sk
+        _LAST_SID = adb.get('ServerId')
+        rec['acct_svc'] = 'on'
+        rec['acct_server_id'] = _LAST_SID
+        rec['acct_mxtoken'] = sk.get('MxToken')
+    except Exception as e:
+        acct_fallback('%s: %s' % (type(e).__name__, e))
+        rec['acct_svc'] = 'fallback:' + type(e).__name__
+        rec['acct_err'] = repr(e)
+    return inner
+
+
+def acct_writeback(rec, **fields):
+    """Persist nickname / call_name. Write failure must NOT affect the response."""
+    if not acct_svc_on():
+        return
+    try:
+        sid = _LAST_SID
+        if not sid:
+            rec['acct_wb'] = 'skip:no-session'
+            return
+        _svc().update_account(int(sid), **fields)
+        rec['acct_wb'] = 'ok:%s' % ','.join(fields)
+    except Exception as e:
+        acct_fallback('writeback %s: %s: %s' % (list(fields), type(e).__name__, e))
+        rec['acct_wb'] = 'err:' + type(e).__name__
+        rec['acct_wb_err'] = repr(e)
+
+
+LOG         = '/www/wwwroot/bapatch/logs/api_all_requests.log'
+MODE_FILE   = '/www/wwwroot/bapatch/cn_bridge_mode.txt'
+FORCE_FILE  = '/www/wwwroot/bapatch/cn_bridge_force_reauth.txt'
+EXP_FILE    = '/www/wwwroot/bapatch/cn_bridge_exp.txt'
+CN_RESP_FILE = '/www/wwwroot/bapatch/cn_resp_format.txt'
+CN_FIELD_PATCH_FILE = '/www/wwwroot/bapatch/cn_field_patch.txt'
+CN_CANARY_FILE = '/www/wwwroot/bapatch/cn_canary.txt'
+CN_HASH_FILE = '/www/wwwroot/bapatch/cn_hash_mode.txt'
+CN_PROTO_VAL_FILE = '/www/wwwroot/bapatch/cn_proto_val.txt'
+CN_FLATTEN_FILE = '/www/wwwroot/bapatch/cn_flatten_keys.txt'
+CN_PACKET_WRAP_FILE = '/www/wwwroot/bapatch/cn_packet_wrap.txt'
+CN_WRAP_MODE_FILE = '/www/wwwroot/bapatch/cn_wrap_mode.txt'
+CN_INNER_MIN_FILE = '/www/wwwroot/bapatch/cn_inner_min.txt'
+CN_INNER_SRC_FILE = '/www/wwwroot/bapatch/cn_inner_src.txt'
+CN_REQUESTID_FILE = '/www/wwwroot/bapatch/cn_requestid_mode.txt'
+NAMES_FILE  = '/www/wwwroot/bapatch/tools/protocol_names.txt'
+TARGET_BASE = 'http://127.0.0.1:5000'
+GATEWAY     = 'http://127.0.0.1:5000/api/gateway'
+BOUNDARY    = '----cnbridge'
+
+UID   = '314816420'
+TOKEN = '<REDACTED_TOKEN>'
+ENTER_TICKET = base64.b64encode(('%s/%s' % (UID, TOKEN)).encode()).decode()
+CLIENT_KEY = base64.b64encode(bytes(range(32))).decode()
+CLIENT_IV  = base64.b64encode(bytes(range(16))).decode()
+
+HOP = ('host', 'content-length', 'connection', 'accept-encoding', 'transfer-encoding')
+
+BUILTIN_NAMES = [
+    "Account_CheckNexon", "Account_Auth", "Account_Auth2", "Account_Create",
+    "Account_VerifyForYostar", "Account_CheckYostar", "Account_GetTutorial",
+    "Account_SetTutorial", "Account_PassCheck", "Account_Nickname",
+    "Account_GetIdCardInformation", "Account_Logout",
+    "Queuing_GetCryptoKeys", "Queuing_GetAuthTicket", "Queuing_GetTicket",
+    "Queuing_Ping", "Queuing_GetTicketGL", "Queuing_ProcessWaitingQueue",
+    "Queuing_GetWaitingQueue",
+    "NetworkTime_Sync", "Session_Info", "System_Version", "System_ServerTime",
+    "Player_GetSetting", "Player_SetSetting", "Content_GetList", "Loading_Complete",
+    "Shop_List", "Shop_BuyGoods", "Character_List", "Mission_List", "Mail_List",
+    "Mail_Receive", "Cafe_GetInfo", "Clan_List", "Friend_GetList", "Raid_GetInfo",
+    "TimeAttack_GetInfo", "MomoTalk_GetOutline", "Scenario_List", "Sticker_List",
+    "Event_GetList", "Campaign_GetList",
+]
+
+NUM_TO_NAME = {}   # filled from our own knowledge of numbers we have seen
+
+
+def b32md5(name):
+    return base64.b32encode(hashlib.md5(name.encode('utf-16-le')).digest()).decode().rstrip('=')
+
+
+NAME_TABLE = {}
+
+# tokens verified from the client's own captured requests (base32(md5(utf-16-le(name))))
+EXTRA_TOKENS = {
+    'AHTQLQI65FWJGGGK4KL5AEF57A': 'Account_Auth',
+    'GVDSNCHUMIOS44NDTZM6ZPDDVQ': 'Account_Nickname',
+    'K3SF6XS7VK7JFL7T2M2WFELUSY': 'Account_CallName',
+    'FZGO2J3INCGSND5AGKDLB7EBSY': 'Account_CheckNexon',
+    'P3OMQZD2FXV7XXEGA7ETCXIJ4Q': 'Account_LoginSync',
+}
+
+
+def load_names():
+    global NAME_TABLE
+    t = {}
+    names = list(BUILTIN_NAMES)
+    try:
+        for line in open(NAMES_FILE):
+            n = line.strip()
+            if n and not n.startswith('#'):
+                names.append(n)
+    except Exception:
+        pass
+    for n in set(names):
+        try:
+            t[b32md5(n)] = n
+        except Exception:
+            pass
+    NAME_TABLE = t
+    return len(t)
+
+
+def mode():
+    try:
+        return open(MODE_FILE).read().strip() or 'bridge'
+    except Exception:
+        return 'bridge'
+
+
+HTTP_SUFFIXES = ('+http500', '+http200empty', '+http404', '+http200')
+
+
+def _raw_exp():
+    try:
+        return open(EXP_FILE).read().strip()
+    except Exception:
+        return ''
+
+
+def exp_flag():
+    v = _raw_exp()
+    for suf in HTTP_SUFFIXES:
+        if v.endswith(suf):
+            return v[:-len(suf)]
+    return v
+
+
+def http_override():
+    v = _raw_exp()
+    for suf in HTTP_SUFFIXES:
+        if v.endswith(suf):
+            return suf[1:]
+    return None
+
+
+def cn_resp_format():
+    # 'shittim' (default): {"protocol":"Account_Auth","packet":"<json string>"}
+    # 'cn_envelope'      : {"protocol":"<base32 md5>","packet":"<b64 [u32 len][gzip(json)]>"}
+    try:
+        v = open(CN_RESP_FILE).read().strip()
+    except Exception:
+        return 'shittim'
+    return v or 'shittim'
+
+
+def cn_field_patch_mode():
+    # 'off' (default) | 'on' | 'on_alt'
+    # on     : FunctionClose = []
+    # on_alt : FunctionClose = false
+    try:
+        v = open(CN_FIELD_PATCH_FILE).read().strip()
+    except Exception:
+        return 'off'
+    return v or 'off'
+
+
+def apply_field_patch(obj, rec=None):
+    # Adds CN-only AccountAuthResponse fields that Shittim never emits.
+    # Types are INFERRED (see report/41 section 3.1); only missing keys are added.
+    m = cn_field_patch_mode()
+    if m not in ('on', 'on_alt') or not isinstance(obj, dict):
+        return obj
+    func_close = {} if m == 'on' else []
+    defaults = {
+        # AccountAuthResponse fields we never emitted
+        'Desc': '',
+        'FunctionClose': func_close,
+        'DailyRecordDBs': [],
+        'MinimumVersion': 0,
+        'IsDevelopment': False,
+        'BattleValidation': False,
+        'UpdateRequired': False,
+        # ResponsePacket base-class collections we never emitted
+        'MissionProgressDBs': [],
+        'EventMissionProgressDBDict': {},
+        'BattlePassMissionProgressDBDict': {},
+    }
+    added = []
+    for k, v in defaults.items():
+        if k not in obj:
+            obj[k] = v
+            added.append(k)
+    if rec is not None:
+        rec['field_patch'] = m
+        rec['field_patch_added'] = added
+    return obj
+
+
+def cn_requestid_mode():
+    # 'random' (default) | 'echo'  (echo = reuse a UUID found in the client request, if any)
+    try:
+        v = open(CN_REQUESTID_FILE).read().strip()
+    except Exception:
+        return 'random'
+    return v or 'random'
+
+
+UUID_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+
+
+def pick_requestid(rec):
+    if cn_requestid_mode() == 'echo':
+        frag = rec.get('req_frag_head') or ''
+        m = UUID_RE.search(frag)
+        if m:
+            rec['requestid_source'] = 'echo-from-request'
+            return m.group(0)
+        rec['requestid_source'] = 'echo-fallback-random(no uuid in request)'
+        return None
+    rec['requestid_source'] = 'random'
+    return None
+
+
+def cn_inner_src():
+    # 'shittim' (default) = today's Shittim-derived 38-key inner
+    # 'spec26'            = report/49 CN DTO inner (26 keys incl _probe)
+    try:
+        v = open(CN_INNER_SRC_FILE).read().strip()
+    except Exception:
+        return 'shittim'
+    return v or 'shittim'
+
+
+def cn_inner_min_on():
+    try:
+        v = open(CN_INNER_MIN_FILE).read().strip()
+    except Exception:
+        return False
+    return v == 'on'
+
+
+MIN_KEEP = [
+    'Protocol', 'ServerTimeTicks', 'ServerNotification',
+    'AccountId', 'AccountDB', 'SessionKey', 'EncryptedUID', 'CurrentVersion',
+    'StaticOpenConditions',
+    'MxToken', '<REDACTED_TOKEN>', 'ServerId',
+    'Desc', 'FunctionClose', 'DailyRecordDBs', 'MinimumVersion', 'IsDevelopment',
+    'BattleValidation', 'UpdateRequired', 'MissionProgressDBs',
+    'EventMissionProgressDBDict', 'BattlePassMissionProgressDBDict',
+    '_probe',
+]
+
+
+def apply_min_inner(obj, rec=None):
+    if not cn_inner_min_on() or not isinstance(obj, dict):
+        return obj
+    out = {k: obj[k] for k in MIN_KEEP if k in obj}
+    if rec is not None:
+        rec['inner_min'] = True
+        rec['inner_min_dropped'] = sorted(set(obj) - set(out))
+    return out
+
+
+def cn_wrap_mode():
+    # 'existing' (default) keeps today's behaviour; 'cn_enc_b64' = real CN wire format
+    try:
+        v = open(CN_WRAP_MODE_FILE).read().strip()
+    except Exception:
+        return 'existing'
+    return v or 'existing'
+
+
+def cn_packet_wrap():
+    # 'raw_gzip' (default, current): packet = base64([u32 len][gzip(inner)])
+    # 'json_string'           : packet = json text of inner (no base64, no gzip)
+    try:
+        v = open(CN_PACKET_WRAP_FILE).read().strip()
+    except Exception:
+        return 'raw_gzip'
+    return v or 'raw_gzip'
+
+
+def cn_proto_val():
+    # 'name' -> "Account_Auth"; 'token' -> base32 md5 form (default keeps current behaviour)
+    try:
+        v = open(CN_PROTO_VAL_FILE).read().strip()
+    except Exception:
+        return 'token'
+    return v or 'token'
+
+
+def cn_flatten_on():
+    try:
+        v = open(CN_FLATTEN_FILE).read().strip()
+    except Exception:
+        return False
+    return v == 'on'
+
+
+def apply_flatten(obj, rec=None):
+    # Keep the nested SessionKey object AND add flat duplicates.
+    # CN metadata has no 'SessionKey' key at all; SessionDB exposes MxToken flat.
+    if not cn_flatten_on() or not isinstance(obj, dict):
+        return obj
+    sk = obj.get('SessionKey')
+    if not isinstance(sk, dict):
+        return obj
+    added = []
+    for k in ('MxToken', '<REDACTED_TOKEN>'):
+        if k in sk and k not in obj:
+            obj[k] = sk[k]
+            added.append(k)
+    sid = None
+    adb = obj.get('AccountDB')
+    if isinstance(adb, dict):
+        sid = adb.get('ServerId')
+    if sid is None:
+        sid = obj.get('AccountServerId') or sk.get('AccountServerId')
+    if sid is not None and 'ServerId' not in obj:
+        obj['ServerId'] = sid
+        added.append('ServerId')
+    if rec is not None:
+        rec['flatten_added'] = added
+    return obj
+
+
+def cn_hash_mode():
+    # 'request' (default) echoes the client's own Hash back; 'off' does not.
+    try:
+        v = open(CN_HASH_FILE).read().strip()
+    except Exception:
+        return 'request'
+    return v or 'request'
+
+
+def cn_canary_on():
+    # 'on' injects a plaintext-layer canary into the cn_envelope outer JSON.
+    try:
+        v = open(CN_CANARY_FILE).read().strip()
+    except Exception:
+        return False
+    return v == 'on'
+
+
+def want_force_reauth():
+    return os.path.exists(FORCE_FILE)
+
+
+def clear_force():
+    try:
+        os.remove(FORCE_FILE)
+    except Exception:
+        pass
+
+
+def post_gateway(obj, timeout=40):
+    mx = cn_cipher.build_mx(obj)
+    body = (('--%s\r\nContent-Disposition: form-data; name="mx"; filename="p.mx"\r\n'
+             'Content-Type: application/octet-stream\r\n\r\n') % BOUNDARY).encode() + mx \
+           + ('\r\n--%s--\r\n' % BOUNDARY).encode()
+    req = urllib.request.Request(GATEWAY, data=body, method='POST')
+    req.add_header('Content-Type', 'multipart/form-data; boundary=%s' % BOUNDARY)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except Exception as e:
+        return 0, ('{"error":%r}' % str(e)).encode()
+
+
+def unwrap_gateway_response(raw):
+    try:
+        j = json.loads(raw.decode('utf-8', 'replace'))
+    except Exception:
+        return None, None
+    pkt = j.get('packet')
+    if isinstance(pkt, str):
+        try:
+            return j.get('protocol'), json.loads(pkt)
+        except Exception:
+            return j.get('protocol'), pkt
+    return j.get('protocol'), pkt
+
+
+class Session(object):
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.session_key = None
+        self.account_id = None
+        self.created = 0
+
+
+SESSION = Session()
+
+# ==== BEGIN 24000_v3 (managed block) ====
+# ==========================================================================
+# 24000_v3 managed block -- DO NOT EDIT BY HAND
+# 由 work/ba/server/deploy/patch_24000_v3.py 生成
+# 基线 = _baseline/account_auth_probe.py  54026 B  sha256 f94b4fa05d95d4c8719f5623322b75629b81eed59442370dd552db721437dbc9
+# 24000_v3 meta: engine=2.0.0 sha256=017c4624a75c7cd94000ecfcf07a62888853a8cfc577cba47338a668f6b71653
+# 结构权威 = work/ba/proto/official_spec.json protocols["24000"]（7 键 / 71 zone / ZoneScheduleGroupRecords={} / RequestId==外层 requestid）
+# 撤销：python3 patch_24000_v3.py --target <file> --rollback
+# ==========================================================================
+# ==== BEGIN ENGINE CORE (24000 v2) ====
+B24000_PROTO = 24000
+B24000_ENGINE_VERSION = '2.0.0'
+B24000_TOP_KEYS = ('Protocol', 'SessionKey', 'ServerTimeTicks', 'ServerNotification',
+                   'RequestId', 'AcademyDB', 'AcademyLocationDBs')
+
+# AcademyZoneDBSchema.f1 的分组：location -> 该 location 的 zone id（ExcelDB 只读推导）
+# 国服启用 9 个 location（AcademyLocationDBSchema 11 行去掉 14 Trinity / 18 Shanhaijing）
+# zone 个数 8 + 7 + 8*7 = 71，与官方 24000 的 71 个键集合完全相等
+B24000_ZONE_LAYOUT = (
+    (1, (1, 10, 11, 12, 13, 14, 15, 16)),
+    (7, (20, 21, 22, 23, 24, 25, 26)),
+    (11, (30, 31, 32, 33, 34, 35, 36, 37)),
+    (12, (40, 41, 42, 43, 44, 45, 46, 47)),
+    (13, (50, 51, 52, 53, 54, 55, 56, 57)),
+    (15, (70, 71, 72, 73, 74, 75, 76, 77)),
+    (16, (80, 81, 82, 83, 84, 85, 86, 87)),
+    (17, (90, 91, 92, 93, 94, 95, 96, 97)),
+    (19, (110, 111, 112, 113, 114, 115, 116, 117)),
+)
+B24000_ENABLED_LOCATIONS = tuple(loc for loc, _zs in B24000_ZONE_LAYOUT)
+B24000_ZONE_BY_LOCATION = dict(B24000_ZONE_LAYOUT)
+B24000_ZONE_IDS = tuple(sorted(z for _loc, zs in B24000_ZONE_LAYOUT for z in zs))
+# 键序 = 字典序（Go encoding/json 对 map 的序列化顺序），官方抓包实测如此
+B24000_ZONE_KEY_ORDER = tuple(sorted(str(z) for z in B24000_ZONE_IDS))
+
+# 新号学院地点：initial_state_rules.q8.initial.suggested_minimum
+#   [{"LocationId": 1, "Rank": 1, "Exp": 0}]  （Rank 初值 high 置信；条数未找到规则）
+B24000_DEFAULT_LOCATIONS = ({'LocationId': 1, 'Rank': 1, 'Exp': 0},)
+# 官方那个 32 级号是 9 条（Rank 2/1/1/2/1/1/2/2/2，Exp 只有 19 号是 200）。
+# 新号若上机因学院崩，改用它做 A/B：坐标全 1、Exp 全 0。
+B24000_ALL9_LOCATIONS = tuple({'LocationId': loc, 'Rank': 1, 'Exp': 0}
+                              for loc in B24000_ENABLED_LOCATIONS)
+
+
+def b24000_ticks(dt=None):
+    """.NET DateTime.Ticks：100ns 自 0001-01-01。整数运算，不经 float。
+
+    口径证据：官方抓包 24000 的 ServerTimeTicks=639304002548158993 换算成
+    2026-11-16T04:30:54.815899，与同一份抓包 meta 的墙钟 04:30:54.980 对齐
+    => 单位确实是 100ns，且取的是**服务器本地墙钟**（不是 UTC）。
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    dt = dt or _dt.now()
+    return ((dt - _dt(1, 1, 1)) // _td(microseconds=1)) * 10
+
+
+def b24000_time_from_ticks(ticks):
+    """ticks -> 同一个墙钟坐标系下的 datetime（与 b24000_ticks 互逆）。"""
+    from datetime import datetime as _dt, timedelta as _td
+    return _dt(1, 1, 1) + _td(microseconds=int(ticks) // 10)
+
+
+def b24000_fmt_time(dt, frac=3):
+    """'2026-11-16T04:00:06.479' —— 无时区、毫秒精度、尾零裁掉（官方 LastUpdate 形态）。"""
+    s = '%04d-%02d-%02dT%02d:%02d:%02d' % (dt.year, dt.month, dt.day,
+                                          dt.hour, dt.minute, dt.second)
+    if frac:
+        digits = ('%09d' % (dt.microsecond * 1000))[:int(frac)].rstrip('0')
+        if digits:
+            s += '.' + digits
+    return s
+
+
+def b24000_normalize_locations(locations=None):
+    """把任意来源的行规整成 [{LocationId,Rank,Exp}]（int、按 LocationId 升序、去重）。
+
+    官方 9 条的顺序就是 LocationId 升序，所以这里排序后输出，与官方一致。
+    任何脏数据都不抛异常：解析不出来的行直接跳过，最后空了就退回最小实现。
+    """
+    rows = []
+    src = locations if locations else B24000_DEFAULT_LOCATIONS
+    for row in src:
+        if isinstance(row, dict):
+            try:
+                loc = int(row.get('LocationId'))
+            except Exception:
+                continue
+            try:
+                rank = int(row.get('Rank', 1))
+            except Exception:
+                rank = 1
+            try:
+                exp = int(row.get('Exp', 0))
+            except Exception:
+                exp = 0
+            rows.append({'LocationId': loc, 'Rank': rank, 'Exp': exp})
+        elif isinstance(row, (list, tuple)) and len(row) >= 3:
+            try:
+                rows.append({'LocationId': int(row[0]), 'Rank': int(row[1]), 'Exp': int(row[2])})
+            except Exception:
+                continue
+    if not rows:
+        rows = [dict(r) for r in B24000_DEFAULT_LOCATIONS]
+    rows.sort(key=lambda r: r['LocationId'])
+    out = []
+    seen = set()
+    for r in rows:
+        if r['LocationId'] in seen:
+            continue
+        seen.add(r['LocationId'])
+        out.append(r)
+    return out
+
+
+def b24000_zone_keys(zone_scope='service', locations=None):
+    """ZoneVisitCharacterDBs 的键（有序）。
+
+    service（默认）：国服 9 个 location 的全部 zone = 71 个，= spec 的 key_count。
+    account        ：只给本账号 AcademyLocationDBs 里出现过的 location 的 zone
+                     （严格状态驱动；新号 1 条地点时是 8 个键，spec 会 WARN 长度越界）
+    """
+    if str(zone_scope) == 'account':
+        locs = []
+        for row in (locations or ()):
+            try:
+                locs.append(int(row.get('LocationId')))
+            except Exception:
+                continue
+        if not locs:
+            locs = list(B24000_ENABLED_LOCATIONS)
+        keys = set()
+        for loc in locs:
+            for z in B24000_ZONE_BY_LOCATION.get(loc, ()):
+                keys.add(str(z))
+        return tuple(sorted(keys))
+    return B24000_ZONE_KEY_ORDER
+
+
+def b24000_academy_locations(account_id, locations=None):
+    """AcademyLocationDBs 的行：严格 4 键 {AccountId,LocationId,Rank,Exp}（spec key_count=4）。"""
+    aid = int(account_id)
+    return [{'AccountId': aid, 'LocationId': r['LocationId'], 'Rank': r['Rank'], 'Exp': r['Exp']}
+            for r in b24000_normalize_locations(locations)]
+
+
+def b24000_build(account_id, mxtoken, request_id, ticks,
+                 locations=None, last_update=None, zone_scope='service', zone_visit=None):
+    """渲染完整的 24000 响应。
+
+    account_id : int   AccountServerId（也是 AcadeyDB.AccountId）
+    mxtoken    : str   SessionKey.MxToken（官方 64 字符 base64）
+    request_id : str   外层 requestid 与它必须**同值**（官方 outer == inner）
+    ticks      : int   .NET 100ns ticks
+    locations  : 可选的 AcademyLocationDBs 行；None = 最小实现（1 条 1/1/0）
+    last_update: 可选 ISO 字符串；None = 由 ticks 反推（同一墙钟坐标系）
+    zone_scope : 'service'（71 键，默认）/ 'account'（只给本账号地点）
+    zone_visit : 可选 {zone_key: [ {UniqueId,ServerId,LastInteractTime}, ... ]}，
+                 只保留 b24000_zone_keys() 里存在的键，用于把状态接进来
+    """
+    aid = int(account_id)
+    nlt = int(ticks)
+    rows = b24000_normalize_locations(locations)
+    if last_update is None:
+        last_update = b24000_fmt_time(b24000_time_from_ticks(nlt))
+
+    zone_visit = zone_visit or {}
+    zv = {}
+    for k in b24000_zone_keys(zone_scope, rows):
+        vals = zone_visit.get(k)
+        zv[k] = [dict(el) for el in vals if isinstance(el, dict)] if vals else []
+
+    return {
+        'Protocol': B24000_PROTO,
+        'SessionKey': {'AccountServerId': aid, 'MxToken': str(mxtoken or '')},
+        'ServerTimeTicks': nlt,
+        'ServerNotification': 0,
+        'RequestId': str(request_id or ''),
+        'AcademyDB': {
+            'AccountId': aid,
+            'LastUpdate': str(last_update),
+            'ZoneVisitCharacterDBs': zv,
+            'ZoneScheduleGroupRecords': {},
+        },
+        'AcademyLocationDBs': b24000_academy_locations(aid, rows),
+    }
+
+
+def b24000_compact(obj):
+    """紧凑 JSON（wire 里 packet 的实际序列化方式）。"""
+    import json as _json
+    return _json.dumps(obj, ensure_ascii=False, separators=(',', ':'))
+
+
+def b24000_check(obj):
+    """结构自检，返回 dict（不抛异常）：ok / problems / 各项计数。"""
+    out = {'ok': False, 'problems': [], 'top_keys': [], 'zone_keys': 0,
+           'locations': 0, 'inner_bytes': 0, 'rid_len': 0, 'token_len': 0}
+    try:
+        if not isinstance(obj, dict):
+            out['problems'].append('根节点不是 dict: %s' % type(obj).__name__)
+            return out
+        keys = tuple(obj.keys())
+        out['top_keys'] = list(keys)
+        if keys != B24000_TOP_KEYS:
+            out['problems'].append('顶层键/键序不符: %r != %r' % (list(keys), list(B24000_TOP_KEYS)))
+        if obj.get('Protocol') != B24000_PROTO:
+            out['problems'].append('Protocol=%r' % (obj.get('Protocol'),))
+        sk = obj.get('SessionKey')
+        if not isinstance(sk, dict) or tuple(sk.keys()) != ('AccountServerId', 'MxToken'):
+            out['problems'].append('SessionKey 形状不符: %r' % (sk,))
+        else:
+            if not isinstance(sk.get('AccountServerId'), int):
+                out['problems'].append('SessionKey.AccountServerId 不是 int')
+            out['token_len'] = len(str(sk.get('MxToken') or ''))
+        if not isinstance(obj.get('ServerTimeTicks'), int):
+            out['problems'].append('ServerTimeTicks 不是 int')
+        if obj.get('ServerNotification') != 0:
+            out['problems'].append('ServerNotification 应为 0')
+        rid = obj.get('RequestId')
+        if not isinstance(rid, str) or not rid:
+            out['problems'].append('RequestId 为空或非字符串')
+        out['rid_len'] = len(rid) if isinstance(rid, str) else 0
+
+        adb = obj.get('AcademyDB')
+        if not isinstance(adb, dict):
+            out['problems'].append('AcademyDB 不是 dict')
+        else:
+            if tuple(adb.keys()) != ('AccountId', 'LastUpdate', 'ZoneVisitCharacterDBs',
+                                     'ZoneScheduleGroupRecords'):
+                out['problems'].append('AcademyDB 键/键序不符: %r' % (list(adb.keys()),))
+            if not isinstance(adb.get('AccountId'), int):
+                out['problems'].append('AcademyDB.AccountId 不是 int')
+            if not isinstance(adb.get('LastUpdate'), str) or 'T' not in str(adb.get('LastUpdate')):
+                out['problems'].append('AcademyDB.LastUpdate 形态不符: %r' % (adb.get('LastUpdate'),))
+            zv = adb.get('ZoneVisitCharacterDBs')
+            if not isinstance(zv, dict):
+                out['problems'].append('ZoneVisitCharacterDBs 不是 dict（必须是 map<string,array>）')
+            else:
+                out['zone_keys'] = len(zv)
+                if not all(isinstance(v, list) for v in zv.values()):
+                    out['problems'].append('ZoneVisitCharacterDBs 存在非数组值')
+                if not all(str(k).lstrip('-').isdigit() for k in zv):
+                    out['problems'].append('ZoneVisitCharacterDBs 存在非数字键')
+                if len(zv) == len(B24000_ZONE_KEY_ORDER) and tuple(zv.keys()) != B24000_ZONE_KEY_ORDER:
+                    out['problems'].append('ZoneVisitCharacterDBs 键序不是字典序')
+            if adb.get('ZoneScheduleGroupRecords') != {}:
+                out['problems'].append('ZoneScheduleGroupRecords 必须为空对象 {}')
+
+        locs = obj.get('AcademyLocationDBs')
+        if not isinstance(locs, list) or not locs:
+            out['problems'].append('AcademyLocationDBs 为空或非数组')
+        else:
+            out['locations'] = len(locs)
+            for i, row in enumerate(locs):
+                if not isinstance(row, dict):
+                    out['problems'].append('AcademyLocationDBs[%d] 不是 dict' % i)
+                    continue
+                if tuple(row.keys()) != ('AccountId', 'LocationId', 'Rank', 'Exp'):
+                    out['problems'].append('AcademyLocationDBs[%d] 键/键序不符: %r'
+                                           % (i, list(row.keys())))
+                for k in ('AccountId', 'LocationId', 'Rank', 'Exp'):
+                    if not isinstance(row.get(k), int):
+                        out['problems'].append('AcademyLocationDBs[%d].%s 不是 int' % (i, k))
+        out['inner_bytes'] = len(b24000_compact(obj).encode('utf-8'))
+        out['ok'] = not out['problems']
+    except Exception as e:            # 自检本身不允许把调用方拖死
+        out['problems'].append('check 异常: %r' % (e,))
+        out['ok'] = False
+    return out
+# ==== END ENGINE CORE (24000 v2) ====
+# ---------------------------------------------------------------- 24000 v3 运行时适配层
+# 职责：① 取当前账号 / 会话 MxToken / RequestId；② 调引擎渲染；③ 把 inner RequestId 当外层 requestid 发出去。
+# 铁律：本层任何函数都不允许把异常抛给调用方（抛了整条连接会变成 500，客户端拿不到 RequestId）。
+_BA24000_CONFIG_FILE = '/www/wwwroot/bapatch/academy_24000_config.json'
+_BA24000_DEFAULT_CONFIG = {
+    'locations': None,
+    'zone_scope': 'service',
+    'last_update': None,
+    'request_id_mode': 'fresh',
+    'default_account_id': 0,
+}
+_BA24000_CFG = {'mtime': None, 'cfg': None}
+
+
+def _ba24000_config(rec=None):
+    """读 academy_24000_config.json（按 mtime 缓存）。文件不存在或坏掉都只回默认值，不抛。"""
+    import json as _json
+    import os as _os
+    try:
+        st = _os.stat(_BA24000_CONFIG_FILE)
+    except Exception:
+        return dict(_BA24000_DEFAULT_CONFIG)
+    if _BA24000_CFG['cfg'] is not None and _BA24000_CFG['mtime'] == st.st_mtime:
+        return _BA24000_CFG['cfg']
+    cfg = dict(_BA24000_DEFAULT_CONFIG)
+    try:
+        with open(_BA24000_CONFIG_FILE, 'r') as f:
+            data = _json.load(f)
+        if isinstance(data, dict):
+            for k in _BA24000_DEFAULT_CONFIG:
+                if k in data:
+                    cfg[k] = data[k]
+        if rec is not None:
+            rec['academy_cfg_file'] = _BA24000_CONFIG_FILE
+            rec['academy_cfg_keys'] = sorted(cfg.keys())
+    except Exception as e:
+        if rec is not None:
+            rec['academy_cfg_err'] = repr(e)
+    _BA24000_CFG['cfg'] = cfg
+    _BA24000_CFG['mtime'] = st.st_mtime
+    return cfg
+
+
+def _ba24000_fragment_text(frag):
+    """请求片段可能多一层转义（客户端把整包 JSON 当字符串塞进来），统一还原。
+    MxToken 是 base64、账号是数字，都不可能含反斜杠，所以整体替换是安全的。"""
+    s = frag or ''
+    try:
+        if '\\"' in s:
+            s = s.replace('\\"', '"')
+    except Exception:
+        pass
+    return s
+
+
+def _ba24000_find_int(text, key):
+    import re as _re
+    m = _re.search('"' + key + r'"\s*:\s*(\d+)', text or '')
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _ba24000_find_str(text, key):
+    import re as _re
+    m = _re.search('"' + key + r'"\s*:\s*"([^"]*)"', text or '')
+    return m.group(1) if m else None
+
+
+def _ba24000_session_key():
+    """桥里缓存的会话（来自 CheckNexon 的真实 SessionKey，MxToken 是 64 字符 base64）。"""
+    try:
+        sk = getattr(SESSION, 'session_key', None)
+    except Exception:
+        return None
+    return sk if isinstance(sk, dict) else None
+
+
+def _ba24000_pick_account(text, cfg):
+    """账号优先级：请求体 AccountId > 请求体 SessionKey.AccountServerId > 会话 > 配置兜底。"""
+    aid = _ba24000_find_int(text, 'AccountId')
+    if aid:
+        return aid, 'request.AccountId'
+    aid = _ba24000_find_int(text, 'AccountServerId')
+    if aid:
+        return aid, 'request.SessionKey.AccountServerId'
+    try:
+        if getattr(SESSION, 'account_id', None):
+            return int(SESSION.account_id), 'session.account_id'
+    except Exception:
+        pass
+    sk = _ba24000_session_key()
+    if sk:
+        try:
+            return int(sk.get('AccountServerId')), 'session.session_key'
+        except Exception:
+            pass
+    try:
+        return int(cfg.get('default_account_id') or 0), 'config.default_account_id'
+    except Exception:
+        return 0, 'config.default_account_id'
+
+
+def _ba24000_pick_token(text, cfg, account_id):
+    """MxToken：请求体 > 会话 > 由账号派生（sha384->base64，恰好 64 字符，与官方同形）。"""
+    tok = _ba24000_find_str(text, 'MxToken')
+    if tok:
+        return tok, 'request'
+    sk = _ba24000_session_key()
+    if sk and sk.get('MxToken'):
+        return str(sk['MxToken']), 'session'
+    import base64 as _b64
+    import hashlib as _h
+    try:
+        raw = ('ba24000:%d' % int(account_id)).encode('utf-8')
+    except Exception:
+        raw = b'ba24000:0'
+    return _b64.b64encode(_h.sha384(raw).digest()).decode('ascii'), 'generated'
+
+
+def _ba24000_pick_request_id(rec, cfg):
+    """RequestId：官方是**每条新生成**的 uuid4，外层 requestid 与它同值。
+    echo 模式只是排查开关（把客户端请求头 REQUEST-ID 回显）——不是默认行为。"""
+    import uuid as _uuid
+    mode = str((cfg or {}).get('request_id_mode') or 'fresh')
+    if mode == 'echo':
+        hdrs = rec.get('headers') or {}
+        for k in ('REQUEST-ID', 'Request-Id', 'request-id', 'Request-ID'):
+            v = hdrs.get(k)
+            if v and v != '-':
+                rec['academy_rid_src'] = 'echo-http-header'
+                return v
+        rec['academy_rid_src'] = 'echo-no-header->uuid4'
+        return str(_uuid.uuid4())
+    rec['academy_rid_src'] = 'uuid4'
+    return str(_uuid.uuid4())
+
+
+def _ba24000_now_ticks():
+    """服务器本地墙钟 -> .NET ticks。官方抓包实测 ticks 与抓包墙钟对齐（见 gen24000.py）。"""
+    from datetime import datetime as _dtm
+    return b24000_ticks(_dtm.now())
+
+
+def _ba24000_build(frag, rec):
+    """渲染 24000 inner。绝不抛异常。"""
+    try:
+        cfg = _ba24000_config(rec)
+        text = _ba24000_fragment_text(frag)
+        aid, asrc = _ba24000_pick_account(text, cfg)
+        tok, tsrc = _ba24000_pick_token(text, cfg, aid)
+        rid = _ba24000_pick_request_id(rec, cfg)
+        ticks = _ba24000_now_ticks()
+        last_update = cfg.get('last_update')
+        obj = b24000_build(aid, tok, rid, ticks,
+                           locations=cfg.get('locations') or None,
+                           last_update=(str(last_update) if last_update else None),
+                           zone_scope=(cfg.get('zone_scope') or 'service'))
+        chk = b24000_check(obj)
+        adb = obj.get('AcademyDB') or {}
+        zv = adb.get('ZoneVisitCharacterDBs')
+        rec['academy_account_id'] = aid
+        rec['academy_account_src'] = asrc
+        rec['academy_token_src'] = tsrc
+        rec['academy_token_len'] = len(tok)
+        rec['academy_token_is64'] = (len(tok) == 64)
+        rec['academy_ticks'] = ticks
+        rec['academy_request_id'] = rid
+        rec['academy_last_update'] = adb.get('LastUpdate')
+        rec['academy_top_keys'] = chk['top_keys']
+        rec['academy_zv_keys'] = chk['zone_keys']
+        rec['academy_zv_is_dict'] = isinstance(zv, dict)
+        rec['academy_locations'] = chk['locations']
+        rec['academy_inner_bytes'] = chk['inner_bytes']
+        rec['academy_schedule_empty'] = (adb.get('ZoneScheduleGroupRecords') == {})
+        rec['academy_no_pseudo_keys'] = not any(k in obj for k in (
+            'MissionProgressDBs', 'EventMissionProgressDBDict',
+            'BattlePassMissionProgressDBDict', 'StaticOpenConditions'))
+        rec['academy_struct_ok'] = chk['ok']
+        if chk['problems']:
+            rec['academy_problems'] = list(chk['problems'])[:8]
+        rec['academy_built'] = 'dynamic-v3'
+        return obj
+    except Exception as e:
+        rec['academy_build_err'] = repr(e)
+        rec['academy_built'] = 'fallback-v3'
+        return _ba24000_minimal(rec)
+
+
+def _ba24000_minimal(rec):
+    """结构正确的兜底：7 键 / 71 zone / 1 条地点。引擎万一炸了也不能发出错形状。
+
+    MxToken 也必须给够 64 字符：有会话就用会话的，没有就由账号派生（sha384->base64）。
+    兜底路径同样要过 report/102 §3 的 7 项 —— 形状错误比数值错误更致命。
+    """
+    import base64 as _b64
+    import hashlib as _h
+    import uuid as _uuid
+    try:
+        aid = int(getattr(SESSION, 'account_id', 0) or 0)
+    except Exception:
+        aid = 0
+    sk = _ba24000_session_key()
+    tok = str(sk.get('MxToken')) if (sk and sk.get('MxToken')) else ''
+    if not tok:
+        tok = _b64.b64encode(_h.sha384(('ba24000:%d' % aid).encode('utf-8')).digest()).decode('ascii')
+    try:
+        ticks = _ba24000_now_ticks()
+    except Exception:
+        ticks = 0
+    try:
+        lu = b24000_fmt_time(b24000_time_from_ticks(ticks))
+    except Exception:
+        lu = '0001-01-01T00:00:00'
+    rid = str(_uuid.uuid4())
+    rec['academy_account_id'] = aid
+    rec['academy_ticks'] = ticks
+    rec['academy_request_id'] = rid
+    rec['academy_last_update'] = lu
+    rec['academy_top_keys'] = list(B24000_TOP_KEYS)
+    rec['academy_zv_keys'] = len(B24000_ZONE_KEY_ORDER)
+    rec['academy_zv_is_dict'] = True
+    rec['academy_locations'] = 1
+    rec['academy_token_len'] = len(tok)
+    rec['academy_token_is64'] = (len(tok) == 64)
+    rec['academy_token_src'] = 'session' if (sk and sk.get('MxToken')) else 'generated'
+    rec['academy_schedule_empty'] = True
+    rec['academy_no_pseudo_keys'] = True
+    return {
+        'Protocol': B24000_PROTO,
+        'SessionKey': {'AccountServerId': aid, 'MxToken': tok},
+        'ServerTimeTicks': ticks,
+        'ServerNotification': 0,
+        'RequestId': rid,
+        'AcademyDB': {
+            'AccountId': aid,
+            'LastUpdate': lu,
+            'ZoneVisitCharacterDBs': dict((k, []) for k in B24000_ZONE_KEY_ORDER),
+            'ZoneScheduleGroupRecords': {},
+        },
+        'AcademyLocationDBs': [{'AccountId': aid, 'LocationId': 1, 'Rank': 1, 'Exp': 0}],
+    }
+
+
+def _ba24000_send(proto_name, obj, rec):
+    """和 _cn_send_envelope 一样的容器，但**外层 requestid == 内层 RequestId**（官方行为）。
+
+    _cn_send_envelope 是自己新生成一个 rid 传给 wrap_response，且不回填 inner.RequestId，
+    所以客户端拿到的 RequestId 与 HTTP 头对不上 —— 这就是"下一条请求没有来源"的直接原因。
+    """
+    import json as _json
+    import uuid as _uuid
+    rid = obj.get('RequestId') or str(_uuid.uuid4())
+    obj['RequestId'] = rid
+    inner = b24000_compact(obj)
+    wire, plain, _key = cn_wire.wrap_response(proto_name, obj, rid)
+    rec['wrap_mode'] = 'direct_envelope'
+    rec['enc_requestid'] = rid
+    rec['enc_inner_keys'] = len(obj)
+    rec['enc_inner_bytes'] = len(inner.encode('utf-8'))
+    rec['enc_plain_len'] = len(plain)
+    rec['enc_body_len'] = len(wire)
+    try:
+        _p = _json.loads(plain)
+        rec['academy_rid_match'] = (_p.get('requestid') == rid)
+        rec['academy_rid_inner_match'] = (
+            _json.loads(_p.get('packet') or '{}').get('RequestId') == rid)
+    except Exception as e:
+        rec['academy_rid_match'] = False
+        rec['academy_rid_inner_match'] = False
+        rec['academy_rid_parse_err'] = repr(e)
+    rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+    try:
+        open('/www/wwwroot/_ba_state/last_direct_envelope_plain.txt', 'w').write(plain)
+    except Exception:
+        pass
+    return 200, wire, 'text/plain; charset=utf-8'
+# ==== END 24000_v3 (managed block) ====
+
+
+def ensure_session(rec):
+    with SESSION.lock:
+        if want_force_reauth():
+            rec['force_reauth'] = True
+            SESSION.session_key = None
+            SESSION.account_id = None
+            clear_force()
+        if SESSION.session_key is not None:
+            rec['session_source'] = 'cache'
+            return SESSION.session_key, SESSION.account_id
+        req = {"Protocol": "Account_CheckNexon", "EnterTicket": ENTER_TICKET,
+               "ClientGeneratedKey": CLIENT_KEY, "ClientGeneratedIV": CLIENT_IV}
+        rec['synth_checknexon'] = req
+        t0 = time.time()
+        code, raw = post_gateway(req)
+        rec['checknexon_code'] = code
+        rec['checknexon_ms'] = int((time.time() - t0) * 1000)
+        rec['checknexon_resp_len'] = len(raw)
+        _, obj = unwrap_gateway_response(raw)
+        if not isinstance(obj, dict) or not obj.get('SessionKey'):
+            rec['checknexon_err'] = 'no SessionKey'
+            rec['checknexon_resp'] = raw[:300].decode('utf-8', 'replace')
+            return None, None
+        SESSION.session_key = obj['SessionKey']
+        SESSION.account_id = obj.get('AccountId') or obj['SessionKey'].get('AccountServerId')
+        SESSION.created = int(time.time())
+        rec['session_source'] = 'fresh'
+        rec['session_key'] = SESSION.session_key
+        rec['account_id'] = SESSION.account_id
+        return SESSION.session_key, SESSION.account_id
+
+
+def parse_cn_multipart(raw):
+    out = {}
+    for name in ('protocol', 'encode', 'packet'):
+        key = ('name="%s"' % name).encode()
+        i = raw.find(key)
+        if i < 0:
+            continue
+        j = raw.find(b'\r\n\r\n', i)
+        if j < 0:
+            continue
+        k = raw.find(b'\r\n--', j + 4)
+        if k < 0:
+            continue
+        out[name] = raw[j + 4:k].decode('latin1').strip()
+    return out
+
+
+def encrypt_variant(inner_obj, variant, req_key):
+    """Return (packet_b64, plaintext_that_was_encrypted).
+
+    variant 1: WHOLE json inside ciphertext, Protocol as NUMBER
+    variant 2: fragment only inside ciphertext (starts with ','), client prepends {"Protocol":<num>
+    variant 3: WHOLE json inside ciphertext, but Protocol written as the NAME string
+    """
+    key = req_key.encode('ascii', 'replace') if isinstance(req_key, str) else req_key
+    if not key:
+        key = None
+    if variant == 3:
+        o = dict(inner_obj)
+        o['Protocol'] = '__NAME__'
+        full = json.dumps(o, ensure_ascii=False, separators=(',', ':'))
+        full = full.replace('"__NAME__"', '%s' % json.dumps(o.get('Protocol')))
+        inner = cn_cipher.build_inner(full, key=key)
+        return cn_cipher.wrap_packet(inner), full
+    full = json.dumps(inner_obj, ensure_ascii=False, separators=(',', ':'))
+    if variant == 1:
+        inner = cn_cipher.build_inner(full, key=key)
+        return cn_cipher.wrap_packet(inner), full
+    idx = full.find(',')
+    frag = full[idx:] if idx >= 0 else full
+    inner = cn_cipher.build_inner(frag, key=key)
+    return cn_cipher.wrap_packet(inner), frag
+
+
+# >>> BA-1017-DYNAMIC-PATCH v1  (work/ba/server/deploy/patch_1017.py)
+# 1017 Account_LoginSync 动态生成 —— 运行时开关。
+#   cn_1017_mode.txt 内容 'dynamic'（默认）/'legacy'；文件不存在 = dynamic。
+#   环境变量 CN_1017_MODE 优先级更高（便于单次启动临时覆盖）。
+CN_1017_MODE_FILE = '/www/wwwroot/bapatch/cn_1017_mode.txt'
+GEN1017_DIR = os.environ.get('BA_GEN1017_DIR') or os.path.dirname(os.path.abspath(__file__))
+
+
+def cn_1017_mode():
+    v = (os.environ.get('CN_1017_MODE') or '').strip().lower()
+    if v:
+        return v
+    try:
+        v = open(CN_1017_MODE_FILE).read().strip().lower()
+    except Exception:
+        return 'dynamic'
+    return v or 'dynamic'
+
+
+def _gen1017_import():
+    if GEN1017_DIR and GEN1017_DIR not in sys.path:
+        sys.path.insert(0, GEN1017_DIR)
+    import gen1017
+    return gen1017
+
+# <<< BA-1017-DYNAMIC-PATCH v1 <<<  (module level)
+class Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
+    def _log(self, rec):
+        try:
+            with open(LOG, 'a') as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+
+    def _send(self, code, body, ctype='application/json; charset=utf-8', opts=None):
+        try:
+            self.send_response(code)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Length', str(len(body)))
+            if opts and opts.get('no_transform'):
+                self.send_header('Cache-Control', 'no-transform')
+            if opts and opts.get('close'):
+                self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(body)
+            if opts and opts.get('close'):
+                self.close_connection = True
+        except Exception:
+            pass
+
+    def _log_ingress(self):
+        try:
+            cl = self.headers.get('Content-Length')
+            ua = self.headers.get('User-Agent') or '-'
+            rid = self.headers.get('REQUEST-ID') or self.headers.get('Request-Id') or '-'
+            line = '%s | %-4s %-40s | CL=%-6s | UA=%-24s | RID=%s\n' % (
+                time.strftime('%Y-%m-%d %H:%M:%S'), self.command, (self.path or '-')[:40],
+                cl if cl else '-', ua[:24], rid)
+            with open('/www/wwwroot/bapatch/logs/all_paths.log', 'a') as f:
+                f.write(line)
+        except Exception:
+            pass
+
+    def _handle(self):
+        self._log_ingress()
+        n = int(self.headers.get('Content-Length') or 0)
+        body = self.rfile.read(n) if n else b''
+        m = mode()
+        rec = {'t': time.strftime('%Y-%m-%d %H:%M:%S'), 'from': self.client_address[0],
+               'method': self.command, 'path': self.path, 'mode': m,
+               'headers': dict(self.headers.items()),
+               'body_len': len(body),
+               'body_printable': ''.join(chr(c) if 32 <= c < 127 else '.' for c in body[:1024])}
+        t0 = time.time()
+        try:
+            if m == 'forward':
+                code, resp, ctype = self._forward(body)
+                rec['served'] = 'forward'
+            else:
+                code, resp, ctype = self._bridge(body, rec)
+                rec['served'] = 'bridge'
+        except Exception as e:
+            rec['err'] = repr(e)
+            code, resp, ctype = 500, json.dumps({'error': repr(e)}).encode(), 'application/json'
+        ov = http_override()
+        if ov:
+            rec['http_override'] = ov
+            if ov == 'http500':
+                code = 500
+            elif ov == 'http404':
+                code = 404
+            elif ov == 'http200empty':
+                code, resp = 200, b''
+            elif ov == 'http200':
+                code = 200
+        rec['ms'] = int((time.time() - t0) * 1000)
+        rec['resp_code'] = code
+        rec['resp_len'] = len(resp)
+        rec['resp_printable'] = ''.join(chr(c) if 32 <= c < 127 else '.' for c in resp[:512])
+        opts = rec.pop('_send_opts', None)
+        self._log(rec)
+        self._send(code, resp, ctype, opts)
+
+    def _forward(self, body):
+        url = TARGET_BASE + self.path
+        req = urllib.request.Request(url, data=body if body else None, method=self.command)
+        for k, v in self.headers.items():
+            if k.lower() not in HOP:
+                req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.status, r.read(), r.headers.get('Content-Type', 'application/octet-stream')
+        except urllib.error.HTTPError as e:
+            return e.code, (e.read() if e else b''), 'application/octet-stream'
+
+    # ---------- response helpers ----------
+    def _cn_envelope(self, proto_name, inner_obj, rec):
+        inner_obj = apply_field_patch(inner_obj, rec)
+        inner_obj = apply_flatten(inner_obj, rec)
+        if cn_wrap_mode() in ('cn_enc_b64', 'cn_enc_b64_probe', 'real_captured', 'e0_proto_swap', 'r01_update', 'e1_token', 'e2_nickname', 'e3_bare_dto', 'e4_strict_dto', 'a_proto_int', 'b_proto_str'):
+            return self._cn_enc_b64(proto_name, inner_obj, rec)
+        if cn_proto_val() == 'name':
+            proto32 = proto_name
+            rec['proto_val'] = 'name'
+        else:
+            proto32 = base64.b32encode(hashlib.md5(proto_name.encode('utf-16-le')).digest()).decode().rstrip('=')
+            rec['proto_val'] = 'token'
+        payload_text = json.dumps(inner_obj, ensure_ascii=False, separators=(',', ':'))
+        payload = payload_text.encode('utf-8')
+        if cn_packet_wrap() == 'json_string':
+            wire = payload_text
+            rec['packet_wrap'] = 'json_string'
+        else:
+            wire = cn_cipher.wrap_packet(payload)
+            rec['packet_wrap'] = 'raw_gzip'
+        rec['cn_envelope'] = True
+        rec['cn_env_protocol'] = proto32
+        rec['cn_env_payload_len'] = len(payload)
+        rec['cn_env_wire_len'] = len(wire)
+        out = {}
+        if cn_canary_on():
+            out["_cn_probe"] = "ZZCANARY7391QKVB"
+            rec["canary"] = True
+        out["protocol"] = proto32
+        out["packet"] = wire
+        if cn_canary_on():
+            out["_cn_probe_tail"] = "ZZTAIL7391QKVB"
+            rec["canary_tail"] = True
+        if cn_hash_mode() == 'request':
+            hv = rec.get("req_Hash")
+            if hv is not None:
+                out["Hash"] = hv
+                rec["hash_echo"] = hv
+                rec["hash_echo_type"] = type(hv).__name__
+        return 200, json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode(), \
+            'application/json; charset=utf-8'
+
+    def _cn_decode_any(self, packet_b64, proto_str):
+        """Try cn_cipher first, fall back to a plain [u32][gzip][iv|ct|key] decode."""
+        try:
+            r = cn_cipher.decode_packet(packet_b64, proto_str)
+            frag = r.get('fragment') or ''
+            if frag:
+                return frag
+        except Exception as e1:
+            self._last_decode_err = repr(e1)
+        try:
+            import base64 as _b64, gzip as _gz
+            from cryptography.hazmat.primitives.ciphers import Cipher as _C, algorithms as _A, modes as _M
+            raw = _b64.b64decode(packet_b64 + '=' * ((4 - len(packet_b64) % 4) % 4))
+            inner = _gz.decompress(raw[4:])
+            iv, ct, key = inner[:16], inner[16:-32], inner[-32:]
+            d = _C(_A.AES(key), _M.CBC(iv)).decryptor()
+            pt = d.update(ct) + d.finalize()
+            pad = pt[-1]
+            if 1 <= pad <= 16 and pt.endswith(bytes([pad]) * pad):
+                pt = pt[:-pad]
+            return pt.decode('utf-8', 'replace')
+        except Exception as e2:
+            self._last_decode_err = repr(e2)
+            return ''
+
+    def _generic_protocol_response(self, proto_str, packet_b64, rec, name=None):
+        """Any protocol we do not implement -> decrypt the request, read Hash>>32, answer with a valid envelope."""
+        frag = self._cn_decode_any(packet_b64, proto_str)
+        rec['gen_frag_len'] = len(frag)
+        if not frag:
+            rec['gen_dec_err'] = getattr(self, '_last_decode_err', 'empty')
+        num = None
+        m = re.search(r'"Hash"\s*:\s*(\d+)', frag)
+        if m:
+            num = int(m.group(1)) >> 32
+        rec['gen_protocol'] = num
+        if rec.get('req_Hash') and num is None:
+            try:
+                num = int(rec['req_Hash']) >> 32
+                rec['gen_protocol'] = num
+            except Exception:
+                pass
+        if num is None:
+            return None
+        # >>> BAPATCH-SIMPLE-HOOK-G v1 BEGIN >>>
+        # 1005 / 4000 / 26000: 官方结构（spec 驱动），替代下面 min+base 的 7 个假键
+        # frag 用 locals().get() 取：线上 bridge 与本仓库副本不是同一版（45,470 vs 46,568 B），
+        # 万一那版里这个局部变量不叫 frag，也不至于 NameError（最坏只是不回显 MxToken）。
+        try:
+            _sg = simple_route(rec, name, num, locals().get('frag'), cn_wire.wrap_response)
+            if _sg is not None:
+                return _sg
+        except Exception as _sg_err:
+            rec['simple_err'] = 'HOOK-G ' + repr(_sg_err)
+        # <<< BAPATCH-SIMPLE-HOOK-G v1 END <<<
+        # >>> BAPATCH-P3-HOOK-G v1 BEGIN >>>
+        # protocol 3：泛接口兜底（min+base 假键）之前接管，回官方 7 键 / 620 B。
+        # frag 用 locals().get()：万一别的版本里这个局部变量改名也不至于 NameError。
+        try:
+            _p3g = p3_route(rec, name, num, locals().get('frag'),
+                            cn_wire.wrap_response, hook='HOOK-G')
+            if _p3g is not None:
+                return _p3g
+        except Exception as _p3g_err:
+            rec['p3_err'] = 'HOOK-G ' + repr(_p3g_err)
+        # <<< BAPATCH-P3-HOOK-G v1 END <<<
+        if num == 90004:
+            from datetime import datetime as _d9
+            _n9 = _d9.now()
+            _t9 = int((_n9 - _d9(1, 1, 1)).total_seconds()) * 10_000_000 + _n9.microsecond * 10
+            obj = {"Protocol": 90004,
+                   "ServerTimeTicks": _t9,
+                   "ServerNotification": 0,
+                   "MissionProgressDBs": [],
+                   "EventMissionProgressDBDict": {},
+                   "BattlePassMissionProgressDBDict": {},
+                   "StaticOpenConditions": dict(cn_inner.STATIC_OPEN_CONDITIONS),
+                   "Notices": [],
+                   "Events": [],
+                   "Issues": [],
+                   "Banners": [],
+                   "GachaProbabilityDisplay": False,
+                   "ContentLock": False,
+                   "GachaPeriodDisplay": False,
+                   "RaidPeriodDisplay": False,
+                   "GuidePopup": {}}
+            rec['gen_kind'] = 'management-90004'
+            rec['fallback'] = 'generic-envelope'
+            return self._cn_send_envelope(name or 'Management_Data', obj, rec)
+        if num == 24000:
+            obj = _ba24000_build(frag if 'frag' in locals() else '', rec)
+            rec['gen_kind'] = 'academy-24000-v3'
+            rec['gen_v'] = 'v3'
+            rec['fallback'] = 'dynamic-24000'
+            return _ba24000_send(name or 'Academy_GetInfo', obj, rec)
+# >>> BA-1017-DYNAMIC-PATCH v1  (work/ba/server/deploy/patch_1017.py)
+# 1017 走动态生成器（35 键 / 26 具名子回包 / 无 Responses 数组）。
+# 关掉开关（--legacy）或任何异常 → 静默落到下面**未改动**的旧 492 B 分支。
+        if num == 1017 and cn_1017_mode() != 'legacy':
+            try:
+                import uuid as _u1017
+                _rid = str(_u1017.uuid4())
+                _sk = SESSION.session_key or {}
+                _sid = _sk.get('AccountServerId') or SESSION.account_id or 0
+                _obj = _gen1017_import().build(
+                    account_state={'server_id': _sid},
+                    session=_sk,
+                    request_id=_rid)
+                _obj['RequestId'] = _rid      # inner == outer requestid（官方逐字节相同）
+                _nm = name if (name and name != 'Unknown') else 'Account_LoginSync'
+                _wire, _plain, _key = cn_wire.wrap_response(_nm, _obj, _rid)
+                rec['gen_kind'] = 'loginsync-1017-dynamic'
+                rec['fallback'] = 'gen1017'
+                rec['wrap_mode'] = 'direct_envelope'
+                rec['enc_requestid'] = _rid
+                rec['enc_inner_keys'] = len(_obj)
+                rec['gen1017_inner_len'] = _gen1017_import().measure(
+                    _obj, _nm, _rid)['inner']
+                rec['enc_plain_len'] = len(_plain)
+                rec['enc_body_len'] = len(_wire)
+                rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+                return 200, _wire, 'text/plain; charset=utf-8'
+            except Exception as _e1017:
+                rec['gen1017_err'] = repr(_e1017)
+
+# <<< BA-1017-DYNAMIC-PATCH v1 <<<  (1017 dispatch)
+        if num in (1019, 1017):
+            obj = {"Protocol": 1019, "ServerTimeTicks": 0, "ServerNotification": 0,
+                   "MissionProgressDBs": [], "EventMissionProgressDBDict": {},
+                   "BattlePassMissionProgressDBDict": {}, "StaticOpenConditions": [],
+                   "Responses": [], "SkillCutInOption": ""}
+            rec['gen_kind'] = 'loginsync-%d' % num
+            obj['Protocol'] = num
+        else:
+            from datetime import datetime as _dt
+            _now = _dt.now()
+            _ticks = int((_now - _dt(1, 1, 1)).total_seconds()) * 10_000_000 + _now.microsecond * 10
+            obj = {"Protocol": num,
+                   "ServerTimeTicks": _ticks,
+                   "ServerNotification": 0,
+                   "MissionProgressDBs": [],
+                   "EventMissionProgressDBDict": {},
+                   "BattlePassMissionProgressDBDict": {},
+                   "StaticOpenConditions": []}
+            rec['gen_kind'] = 'min+base'
+        rec['fallback'] = 'generic-envelope'
+        return self._cn_send_envelope(name or 'Unknown', obj, rec)
+
+    def _cn_send_envelope(self, proto_name, obj, rec):
+        """Encode exactly the object we were given (no cn_wrap_mode re-building)."""
+        import uuid as _uuid
+        rid = str(_uuid.uuid4())
+        wire, plain, key = cn_wire.wrap_response(proto_name, obj, rid)
+        rec['wrap_mode'] = 'direct_envelope'
+        rec['enc_requestid'] = rid
+        rec['enc_inner_keys'] = len(obj) if isinstance(obj, dict) else 0
+        rec['enc_plain_len'] = len(plain)
+        rec['enc_body_len'] = len(wire)
+        rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+        try:
+            open('/www/wwwroot/_ba_state/last_direct_envelope_plain.txt', 'w').write(plain)
+        except Exception:
+            pass
+        return 200, wire, 'text/plain; charset=utf-8'
+
+    def _cn_enc_b64(self, proto_name, inner_obj, rec):
+        import uuid as _uuid
+        if cn_wrap_mode() in ('a_proto_int', 'b_proto_str'):
+            pv = 1002 if cn_wrap_mode() == 'a_proto_int' else 'Account_Auth'
+            inner = cn_inner27.build(pv)
+            inner = acct_apply_to_auth(inner, rec)
+            rid = str(_uuid.uuid4())
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', inner, rid)
+            rec['wrap_mode'] = cn_wrap_mode()
+            rec['ab_protocol_value'] = pv
+            rec['ab_inner_keys'] = len(inner)
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['canary_skipped'] = True
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                tag = 'A' if cn_wrap_mode() == 'a_proto_int' else 'B'
+                open('/www/wwwroot/_ba_state/round18_%s_wire.bin' % tag, 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round18_%s_plain.txt' % tag, 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e4_strict_dto':
+            # strict DTO: ONLY members that really exist on AccountAuthResponse / ResponsePacket.
+            # 'Protocol' lives on the HttpMessage wrapper layer -> must NOT appear here.
+            inner = cn_inner.build(with_canary=False)
+            inner.pop('Protocol', None)
+            inner.pop('_probe', None)
+            if cn_canary_on():
+                inner['Desc'] = 'ZZCANARY7391QKVB'
+                rec['canary_in_desc'] = True
+            rid = str(_uuid.uuid4())
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', inner, rid)
+            rec['wrap_mode'] = 'e4_strict_dto'
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round17_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round17_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e3_bare_dto':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            plaintext = json.dumps(inner, ensure_ascii=False, separators=(',', ':'))
+            wire, plain, key = cn_wire.wrap_raw(plaintext)
+            rec['wrap_mode'] = 'e3_bare_dto'
+            rec['e3_keys'] = len(inner)
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round16_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round16_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e2_nickname':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            inner['AccountDB']['Nickname'] = 'Sensei'
+            rid = str(_uuid.uuid4())
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', inner, rid)
+            rec['wrap_mode'] = 'e2_nickname'
+            rec['e2_nickname'] = 'Sensei'
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round15_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round15_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e1_token':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            rid = str(_uuid.uuid4())
+            TOKEN = '<REDACTED_TOKEN>'
+            wire, plain, key = cn_wire.wrap_response(TOKEN, inner, rid)
+            rec['wrap_mode'] = 'e1_token'
+            rec['e1_protocol'] = TOKEN
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round14_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round14_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'r01_update':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            inner['UpdateRequired'] = True
+            rid = str(_uuid.uuid4())
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', inner, rid)
+            rec['wrap_mode'] = 'r01_update'
+            rec['r01_UpdateRequired'] = True
+            rec['enc_requestid'] = rid
+            rec['enc_inner_keys'] = len(inner)
+            rec['enc_plain_len'] = len(plain)
+            rec['enc_body_len'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round10_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round10_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'e0_proto_swap':
+            raw = open('/www/wwwroot/_ba_state/cn_real_capture/resp_1.body', 'rb').read().strip()
+            real_outer, real_inner, _k, _pl = cn_wire.unwrap_response(raw)
+            rid = real_outer.get('requestid')
+            wire, plain, key = cn_wire.wrap_response('Account_Auth', real_inner, requestid=rid)
+            rec['wrap_mode'] = 'e0_proto_swap'
+            rec['e0_requestid'] = rid
+            rec['e0_real_packet'] = (real_outer.get('packet') or '')[:200]
+            rec['e0_plain_len'] = len(plain)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round9_wire_actual.bin', 'wb').write(wire)
+                open('/www/wwwroot/_ba_state/round9_plain_actual.txt', 'w').write(plain)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'real_captured':
+            wire = open('/www/wwwroot/_ba_state/cn_real_capture/resp_1.body', 'rb').read().strip()
+            rec['wrap_mode'] = 'real_captured'
+            rec['real_captured_bytes'] = len(wire)
+            rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+            try:
+                open('/www/wwwroot/_ba_state/round8_wire_actual.bin', 'wb').write(wire)
+                rec['wire_dumped'] = True
+            except Exception as e:
+                rec['wire_dump_err'] = repr(e)
+            return 200, wire, 'text/plain; charset=utf-8'
+        if cn_wrap_mode() == 'cn_enc_b64_probe':
+            inner = {"Protocol": -1, "Reason": "ZZPROBEREASON", "ErrorCode": 1018}
+            proto_name = "Error"
+            rec['probe_mode'] = True
+        elif cn_inner_src() == 'spec26':
+            inner = cn_inner.build(with_canary=cn_canary_on())
+            rec['inner_src'] = 'spec26'
+        else:
+            inner = dict(inner_obj)
+            rec['inner_src'] = 'shittim'
+        if cn_canary_on() and not rec.get('probe_mode') and rec.get('inner_src') != 'spec26':
+            inner['_probe'] = 'ZZCANARY7391QKVB'
+            rec['canary_inner'] = True
+        if rec.get('inner_src') != 'spec26':
+            inner = apply_min_inner(inner, rec)
+        rid = pick_requestid(rec) or str(_uuid.uuid4())
+        wire, plain, key = cn_wire.wrap_response(proto_name, inner, rid)
+        rec['wrap_mode'] = 'cn_enc_b64'
+        rec['enc_requestid'] = rid
+        rec['enc_inner_keys'] = len(inner)
+        rec['enc_plain_len'] = len(plain)
+        rec['enc_body_len'] = len(wire)
+        rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True,
+                             'no_transform': len(wire) >= 1000}
+        try:
+            open('/www/wwwroot/_ba_state/round7_wire_actual.bin', 'wb').write(wire)
+            open('/www/wwwroot/_ba_state/round7_plain_actual.txt', 'w').write(plain)
+            rec['wire_dumped'] = True
+        except Exception as e:
+            rec['wire_dump_err'] = repr(e)
+        return 200, wire, 'text/plain; charset=utf-8'
+
+    def _json_ok(self, proto_name, inner_obj):
+        inner_obj = apply_field_patch(inner_obj)
+        out = {"protocol": proto_name,
+               "packet": json.dumps(inner_obj, ensure_ascii=False, separators=(',', ':'))}
+        return 200, json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode(), \
+            'application/json; charset=utf-8'
+
+    def _json_encrypted(self, proto_name, inner_obj, exp, req_key, rec):
+        variant = 1
+        if exp.endswith('2'):
+            variant = 2
+        elif exp.endswith('3'):
+            variant = 3
+        pkt, plain = encrypt_variant(inner_obj, variant, req_key)
+        rec['encresp'] = True
+        rec['encresp_key'] = req_key
+        rec['encresp_variant'] = variant
+        rec['encresp_inner_len'] = len(pkt)
+        rec['encresp_plain_len'] = len(plain)
+        rec['encresp_prefix'] = plain[:40]
+        out = {"protocol": proto_name, "packet": pkt}
+        return 200, json.dumps(out, ensure_ascii=False, separators=(',', ':')).encode(), \
+            'application/json; charset=utf-8'
+
+    # ---------- main bridge ----------
+    def _bridge(self, body, rec):
+        fields = parse_cn_multipart(body)
+        proto_str = fields.get('protocol', '')
+        packet_b64 = fields.get('packet', '')
+        if not packet_b64 and b'packet=' in body:
+            try:
+                from urllib.parse import parse_qs
+                # base64 '+' would be decoded as space by parse_qs -> protect it first
+                q = parse_qs(body.decode('utf-8', 'replace').replace('+', '%2B'))
+                proto_str = (q.get('protocol') or [''])[0] or proto_str
+                packet_b64 = (q.get('packet') or [''])[0] or packet_b64
+                rec['form_encoded'] = True
+            except Exception as e:
+                rec['form_parse_err'] = repr(e)
+        exp = exp_flag()
+        rec['protocol_raw'] = proto_str
+        rec['exp'] = exp
+        name = NAME_TABLE.get(proto_str) or EXTRA_TOKENS.get(proto_str)
+        rec['protocol_name'] = name
+        # >>> BAPATCH-P3-HOOK-E v1 BEGIN >>>
+        # protocol 3 (NetworkTime_Sync)：在 exp / path A 之前按协议名最早接管，
+        # 保证 ReceiveTick / EchoSendTick 一定是真时间戳（红线：不能是通用空构造里的 0）。
+        # 先 p3_name_hit（一次字符串比较）挡住别的协议，命中才读开关文件。
+        # 开关关 / 生成器异常 -> 原路返回，后面的 path D / generic 兜底完全不变。
+        try:
+            if p3_name_hit(name) and p3_wants(3):
+                _p3e = p3_route(rec, name, 3,
+                                self._cn_decode_any(packet_b64, proto_str),
+                                cn_wire.wrap_response, hook='HOOK-E')
+                if _p3e is not None:
+                    return _p3e
+        except Exception as _p3e_err:
+            rec['p3_err'] = 'HOOK-E ' + repr(_p3e_err)
+        # <<< BAPATCH-P3-HOOK-E v1 END <<<
+
+        if exp == 'experror':
+            env = json.dumps({"protocol": "Error",
+                              "packet": json.dumps({"Protocol": -1, "ErrorCode": 500,
+                                                    "ServerTimeTicks": 639302206010000000},
+                                                   separators=(',', ':'))},
+                             separators=(',', ':'))
+            return 200, env.encode(), 'application/json; charset=utf-8'
+
+        if name is None:
+            rec['unknown_protocol'] = True
+            # >>> BAPATCH-RELAY-HOOK-A v1 BEGIN >>>
+            # 未知协议：开关打开时把解出来的客户端真实请求转发给本地 Shittim
+            # (/api/gateway)，拿到 dict 回包就用 _cn_envelope 包成 CN 信封返回。
+            # 任何一步不成就原路落回（下面的 min+base / forward 完全不变，绝不 500）。
+            # 已知协议（含 3/1005/1017/1019/24000/26000/4000/90004）在 relay_route
+            # 里由 RL_HANDLED 显式排除；Account_CheckNexon(1014) 只由 ensure_session
+            # 内部调用，不会经过这里。开关 cn_relay_unknown.txt 缺失 = 关。
+            try:
+                _rl_a = rl_route(rec, proto_str, packet_b64, name, self._cn_envelope)
+                if _rl_a is not None:
+                    return _rl_a
+            except Exception as _rl_a_err:
+                rec['relay_err'] = repr(_rl_a_err)
+                rec['relay_fallthrough'] = 'exception'
+            # <<< BAPATCH-RELAY-HOOK-A v1 END <<<
+            got = self._generic_protocol_response(proto_str, packet_b64, rec)
+            if got is not None:
+                return got
+            code, resp, ctype = self._forward(body)
+            rec['fallback'] = 'forward-unknown-protocol'
+            return code, resp, ctype
+
+        want_decrypt = exp.startswith('decrypt+')
+
+        # -------- path A: decrypt the real client request --------
+        if want_decrypt and packet_b64:
+            try:
+                r = cn_cipher.decode_packet(packet_b64, proto_str)
+            except Exception as e:
+                rec['decrypt_err'] = repr(e)
+                r = None
+            if r is not None:
+                rec['decrypted'] = True
+                rec['req_key'] = r.get('key')
+                rec['req_iv'] = r.get('iv')
+                rec['req_inner_len'] = r.get('inner_len')
+                rec['req_frag_len'] = r.get('frag_len')
+                req_json = r.get('json')
+                if isinstance(req_json, dict):
+                    rec['req_keys'] = sorted(req_json.keys())
+                    try:
+                        rec['req_frag_head'] = str(r.get('fragment'))[:600]
+                    except Exception:
+                        rec['req_frag_head'] = ''
+                    rec['req_Token'] = req_json.get('Token')
+                    rec['req_Hash'] = req_json.get('Hash')
+                    sk, aid = ensure_session(rec)
+                    if sk is None:
+                        return 500, json.dumps({'error': 'checknexon failed'}).encode(), 'application/json'
+                    injected = 'SessionKey' not in req_json
+                    if injected:
+                        req_json['SessionKey'] = sk
+                    rec['session_injected'] = injected
+                    code, raw = post_gateway(req_json)
+                    rec['auth_code'] = code
+                    rec['auth_resp_len'] = len(raw)
+                    gp, obj = unwrap_gateway_response(raw)
+                    rec['auth_protocol'] = gp
+                    if not isinstance(obj, dict):
+                        return 502, raw, 'application/json'
+                    rec['auth_keys'] = sorted(obj.keys())[:25]
+                    rec['resp_name'] = name
+                    if cn_resp_format() == 'cn_envelope':
+                        return self._cn_envelope(name, obj, rec)
+                    if exp.endswith('encresp1') or exp.endswith('encresp2') or exp.endswith('encresp3'):
+                        return self._json_encrypted(name, obj, exp, r.get('key'), rec)
+                    return self._json_ok(name, obj)
+                rec['decrypt_json_none'] = True
+            rec['fallback'] = 'synthetic'
+        # -------- path B: synthetic --------
+        if name in ('Account_CheckNexon',):
+            sk, aid = ensure_session(rec)
+            if sk is None:
+                return 500, json.dumps({'error': 'checknexon failed'}).encode(), 'application/json'
+            obj = {"Protocol": 1014, "ResultState": 1, "SessionKey": sk, "AccountId": aid}
+            return self._json_ok('Account_CheckNexon', obj)
+        if name in ('Account_Auth', 'Account_Auth2'):
+            sk, aid = ensure_session(rec)
+            if sk is None:
+                return 500, json.dumps({'error': 'checknexon failed'}).encode(), 'application/json'
+            req = {"Protocol": "Account_Auth", "SessionKey": sk}
+            rec['synth_auth'] = req
+            code, raw = post_gateway(req)
+            rec['auth_code'] = code
+            rec['auth_resp_len'] = len(raw)
+            gp, obj = unwrap_gateway_response(raw)
+            if not isinstance(obj, dict):
+                return 502, raw, 'application/json'
+            rec['auth_keys'] = sorted(obj.keys())[:25]
+            rec['exp_result_before'] = obj.get('ResultState')
+            if cn_resp_format() == 'cn_envelope':
+                return self._cn_envelope('Account_Auth', obj, rec)
+            if exp in ('resultstate0', 'resultstate1'):
+                obj['ResultState'] = 0 if exp == 'resultstate0' else 1
+            return self._json_ok('Account_Auth', obj)
+        # -------- path C0: Account_CallName (1010) --------
+        if name == 'Account_CallName':
+            call = '111'
+            try:
+                r0 = cn_cipher.decode_packet(packet_b64, proto_str)
+                frag0 = r0.get('fragment') or ''
+                rec['call_frag_len'] = len(frag0)
+                m0 = re.search(r'"CallName"\s*:\s*"([^"]*)"', frag0)
+                if m0:
+                    call = m0.group(1)
+                    rec['call_from_request'] = True
+            except Exception as e:
+                rec['call_dec_err'] = repr(e)
+            rec['callname'] = call
+            acct_writeback(rec, call_name=call)
+            obj = cn_nick.build_callname_response(call, nickname='111', protocol=1010)
+            rec['call_resp_accountdb_fields'] = len(obj['AccountDB'])
+            return self._cn_send_envelope('Account_CallName', obj, rec)
+
+        # -------- path C: Account_Nickname (1001) --------
+        if name in ('Account_Nickname', 'Account_CallName'):
+            frag = rec.get('req_frag_head') or ''
+            if not frag:
+                try:
+                    r1 = cn_cipher.decode_packet(packet_b64, proto_str)
+                    frag = r1.get('fragment') or ''
+                    rec['nick_frag_len'] = len(frag)
+                except Exception as e:
+                    rec['nick_dec_err'] = repr(e)
+            m = re.search(r'"Nickname"\s*:\s*"([^"]*)"', frag)
+            nick = m.group(1) if m else '111'
+            rec['nick_from_request'] = bool(m)
+            rec['nickname'] = nick
+            acct_writeback(rec, nickname=nick)
+            obj = cn_nick.build_nickname_response(nick, protocol=1001)
+            rec['nick_resp_keys'] = len(obj)
+            rec['nick_accountdb_fields'] = len(obj['AccountDB'])
+            return self._cn_send_envelope('Account_Nickname', obj, rec)
+
+        # -------- path D: generic non-empty fallback (never 200 + 0 bytes) --------
+        proto_int = None
+        try:
+            h = rec.get('req_Hash')
+            if isinstance(h, int) and h > 0:
+                proto_int = h >> 32
+        except Exception:
+            proto_int = None
+        # >>> BAPATCH-SIMPLE-HOOK-D v1 BEGIN >>>
+        # 1005 / 4000 / 26000: path D 会把它们回成 {"Protocol":N} 单键，先在这里接管
+        try:
+            if simple_wants(proto_int):
+                _sg = self._generic_protocol_response(proto_str, packet_b64, rec, name=name)
+                if _sg is not None:
+                    return _sg
+        except Exception as _sg_err:
+            rec['simple_err'] = 'HOOK-D ' + repr(_sg_err)
+        # <<< BAPATCH-SIMPLE-HOOK-D v1 END <<<
+        # >>> BAPATCH-P3-HOOK-D v1 BEGIN >>>
+        # protocol 3：path D 会把它回成 {"Protocol":3} 单键（无 tick），先在这里接管。
+        try:
+            if p3_wants(proto_int):
+                _p3d = p3_route(rec, name, proto_int,
+                                self._cn_decode_any(packet_b64, proto_str),
+                                cn_wire.wrap_response, hook='HOOK-D')
+                if _p3d is not None:
+                    return _p3d
+        except Exception as _p3d_err:
+            rec['p3_err'] = 'HOOK-D ' + repr(_p3d_err)
+        # <<< BAPATCH-P3-HOOK-D v1 END <<<
+        # >>> BAPATCH-RELAY2-HOOK v1 BEGIN >>>
+        # 名字已知、但没有真生成器的协议（8000 / 1006 / 8006 / 90011 / 35003 / 16000 …）：
+        # 开关 cn_relay_known.txt 打开时，把客户端真实请求转发给本地 Shittim
+        # (/api/gateway)，拿到 dict 回包就用 _cn_envelope 包成 CN 信封返回。
+        # 挂在这里（`if proto_int:` 之前、同级）等于同时接住两条空壳出口：
+        #   proto_int 有值 -> 原本走下面的 min-envelope；为 None -> 走 _generic_protocol_response 的 min+base。
+        # 任何一步不成就原路落回（下面的代码完全不变，绝不 500）。
+        # 有真生成器的协议号由 RL2_HANDLED 显式排除；Account_CheckNexon(1014) 只由
+        # ensure_session 内部调用，另有名字级排除 + 同线程重入保护。开关缺失 = 关。
+        try:
+            _rl2_a = rl2_route(rec, proto_str, packet_b64, name, self._cn_envelope)
+            if _rl2_a is not None:
+                return _rl2_a
+        except Exception as _rl2_a_err:
+            rec['relay2_err'] = repr(_rl2_a_err)
+            rec['relay2_fallthrough'] = 'exception'
+        # <<< BAPATCH-RELAY2-HOOK v1 END <<<
+        if proto_int:
+            obj = cn_nick.build_min_response(proto_int)
+            rec['fallback'] = 'min-envelope'
+            rec['fallback_protocol'] = proto_int
+            proto_name = name if (name and name != 'Unknown') else 'Account_Nickname'
+            return self._cn_send_envelope(proto_name, obj, rec)
+        got = self._generic_protocol_response(proto_str, packet_b64, rec, name=name)
+        if got is not None:
+            rec['known_other_upgraded'] = True
+            return got
+        code, resp, ctype = self._forward(body)
+        rec['fallback'] = 'forward-known-other'
+        return code, resp, ctype
+
+    do_GET = _handle
+    do_POST = _handle
+    do_PUT = _handle
+
+    def log_message(self, *a):
+        pass
+
+
+# >>> BAPATCH-SIMPLE-PAYLOAD v1 BEGIN >>> (deploy/simple_payload.py verbatim, sha256=871a78b7e049c8e95056013a3327ba90fb53b7c7a66552d66cec2b4ca31619a1) >>>
+# -*- coding: utf-8 -*-
+"""simple_payload.py -- 1005 / 4000 / 26000 三个协议的载荷构造器（唯一真源）。
+
+本文件有**两个消费者，读同一份源码**：
+
+  1. `deploy/gen_simple.py`   -- import 使用，离线渲染 + spec_check 验收
+  2. `deploy/patch_simple.py` -- --apply 时把本文件**逐字节原样内嵌**进
+                                 account_auth_probe.py（bridge），不抄第二份
+
+所以这里必须满足「能被原样贴进 bridge 的模块命名空间里」：
+  * 不写 `from __future__ import ...`（不是文件首语句会 SyntaxError）
+  * 不写 `if __name__ == '__main__':`（bridge 就是脚本，会被执行）
+  * 只用标准库 json / base64 / hashlib / os / re / uuid / datetime
+  * import 期不碰文件系统、不碰网络、不读任何仓库文件
+  * 公共名字统一 `simple_*` / `SIMPLE_*` 前缀，避免和 bridge 现有全局撞名
+
+三个协议的数据来源（逐条可查，见 TEST_SIMPLE.md §0）：
+
+  1005 TutorialIds = []          <- initial_state_rules.json  q7_tutorials.initial.TutorialIds
+  4000 ItemDBs     = 1 行加速券  <- initial_state_rules.json  server_apply_skeleton.ItemDBs[0]
+                                    (Type=4 / UniqueId=2 / StackCount=5 / IsNew=true)
+                                    UniqueId=2 -> ItemDBSchema.Id=2（1803 行，excel_field_map 134/134 verified）
+  26000 HasValidData=false + 两个 null  <- official_spec.json 26000（官方 8 键，后 3 键就是这三个值）
+"""
+
+import base64
+import hashlib
+import json
+import os
+import re
+import uuid
+
+# ---------------------------------------------------------------- 常量
+SIMPLE_PROTOCOLS = (1005, 4000, 26000)
+
+# 外层信封的 protocol 名（官方抓包实测，三个都逐字对过：见 report\_tmp\official_decoded_201\*.plain）
+SIMPLE_NAMES = {
+    1005: 'Account_GetTutorial',
+    4000: 'Item_List',
+    26000: 'ContentSave_Get',
+}
+
+# 每个协议一个独立开关文件，内容 1=启用 0=停用（缺失 = 停用，fail-safe）
+SIMPLE_SWITCH_FILES = {
+    1005: 'cn_1005.txt',
+    4000: 'cn_4000.txt',
+    26000: 'cn_26000.txt',
+}
+
+# 开关查找顺序：bridge 所在目录（dirname(__file__)）-> 线上 tools/ -> 线上 bapatch/
+SIMPLE_FALLBACK_DIRS = ('/www/wwwroot/bapatch/tools', '/www/wwwroot/bapatch')
+
+# 账号号：bridge 拿不到时用它（= 官方抓包那个号 / 本项目测试号）
+SIMPLE_DEFAULT_ACCOUNT = 10015354380
+SIMPLE_ACCOUNT_FILE = 'cn_simple_account.txt'
+SIMPLE_TICKS_FILE = 'cn_simple_ticks.txt'
+
+# 新号初始道具：(ParcelType, ItemDBSchema.Id, StackCount, IsNew)
+#   来源 initial_state_rules.json -> q3_initial_items.initial.ItemDBs
+#        = DefaultParcelExcelTable 里唯一一行 ParcelType=4(Item)、ParcelId=2(加速券)、ParcelAmount=5
+#   注意：skeleton 里那行还带 IsLocked（schema_v2 的列），官方 4000 的 ItemDB 只有 5 个键，
+#        没有 IsLocked -> 这里就不放进去（否则 spec_check 报「多键」FAIL）。
+SIMPLE_INITIAL_ITEMS = ((4, 2, 5, True),)
+
+# 新号初始教程进度 = 空（q7_tutorials.initial.TutorialIds = []）。
+# 只给调试/复现官方样本用 --tutorial-ids 覆盖；bridge 永远发空。
+SIMPLE_TUTORIAL_IDS = ()
+
+# ParcelType 枚举：Item=4（q3 evidence：MX.Data.LocalizeEtcData.GetName(FlatData.ParcelType, ...)）
+SIMPLE_PARCEL_ITEM = 4
+
+
+# ---------------------------------------------------------------- 开关
+def simple_switch_dirs():
+    """开关文件的候选目录（有序）。"""
+    out = []
+    try:
+        out.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+    for d in SIMPLE_FALLBACK_DIRS:
+        if d not in out:
+            out.append(d)
+    return out
+
+
+def simple_read_switch(fn, base=None):
+    """读一个开关文件；返回 (路径, 内容)。找不到返回 (None, None)。"""
+    dirs = []
+    if base:
+        dirs.append(base)
+    dirs.extend(simple_switch_dirs())
+    for d in dirs:
+        if not d:
+            continue
+        p = os.path.join(d, fn)
+        try:
+            with open(p, 'r') as fh:
+                return p, fh.read().strip()
+        except Exception:
+            continue
+    return None, None
+
+
+def simple_switch_on(num, base=None):
+    """该协议是否启用。缺失/读不到/内容不是真值 -> False（fail-safe：停用）。"""
+    try:
+        num = int(num)
+    except Exception:
+        return False
+    fn = SIMPLE_SWITCH_FILES.get(num)
+    if not fn:
+        return False
+    _p, v = simple_read_switch(fn, base)
+    if v is None:
+        return False
+    return v.strip().lower() in ('1', 'on', 'true', 'yes')
+
+
+def simple_wants(num, base=None):
+    """协议号属于三件套且开关打开 —— 给 bridge 的分发处做前置判断（不解密、不构包）。"""
+    try:
+        num = int(num)
+    except Exception:
+        return False
+    return num in SIMPLE_PROTOCOLS and simple_switch_on(num, base)
+
+
+# ---------------------------------------------------------------- 基础值
+def simple_ticks(mode='utc', now=None):
+    """.NET ticks（100ns，自 0001-01-01）。
+
+    官方实测：ServerTimeTicks 解出来 == UTC 墙钟（1005: 639304002559071160 -> 2026-11-16T04:30:55.9Z，
+    抓包 meta.bj 也记 04:30:56.071），所以默认 utc。
+    bridge 里其它老分支用的是 datetime.now()（本地时间），本文件不跟随它 —— 见 TEST_SIMPLE.md §5 WARN-4。
+    """
+    from datetime import datetime, timezone
+    if now is None:
+        if str(mode).lower() == 'local':
+            now = datetime.now()
+        else:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+    delta = now - datetime(1, 1, 1)
+    return (delta.days * 86400 + delta.seconds) * 10000000 + delta.microseconds * 10
+
+
+def simple_ticks_mode(base=None):
+    _p, v = simple_read_switch(SIMPLE_TICKS_FILE, base)
+    if v and v.strip().lower() == 'local':
+        return 'local'
+    return 'utc'
+
+
+def simple_mxtoken(account_id):
+    """由账号派生 64 字符 base64 MxToken（= specgen.Account.create 的同一公式，48 字节 sha384）。"""
+    raw = hashlib.sha384(('ba-private-server:%d' % int(account_id)).encode('utf-8')).digest()
+    return base64.b64encode(raw).decode('ascii')
+
+
+def simple_item_server_id(account_id, index=1):
+    """道具的 ServerId = account_id * 100000 + 20000 + 序号（kind=2 道具）。
+
+    与 work/ba/server/prototype/specgen.py 的 Account.obj_id(2, i) 同一公式，
+    保证 1017 的编队/角色 ServerId 与本协议的道具 ServerId 用同一套号段、多账号共库不撞号。
+    """
+    return int(account_id) * 100000 + 20000 + int(index)
+
+
+def simple_item_rows(account_id):
+    rows = []
+    for i, (ptype, uid, cnt, isnew) in enumerate(SIMPLE_INITIAL_ITEMS):
+        rows.append({
+            'Type': int(ptype),
+            'ServerId': simple_item_server_id(account_id, i + 1),
+            'UniqueId': int(uid),
+            'StackCount': int(cnt),
+            'IsNew': bool(isnew),
+        })
+    return rows
+
+
+# ---------------------------------------------------------------- 三个载荷
+def simple_build(num, account_id=None, mxtoken=None, rid=None, ticks=None, tutorial_ids=None):
+    """构造协议 num 的完整响应（键序 = 官方 top_key_order）。"""
+    num = int(num)
+    if account_id is None:
+        account_id = SIMPLE_DEFAULT_ACCOUNT
+    account_id = int(account_id)
+    if mxtoken is None:
+        mxtoken = simple_mxtoken(account_id)
+    if ticks is None:
+        ticks = simple_ticks()
+    if rid is None:
+        rid = str(uuid.uuid4())
+
+    if num == 1005:
+        prog = SIMPLE_TUTORIAL_IDS if tutorial_ids is None else tutorial_ids
+        return {
+            'Protocol': 1005,
+            'SessionKey': {'AccountServerId': account_id, 'MxToken': mxtoken},
+            'ServerTimeTicks': int(ticks),
+            'ServerNotification': 0,
+            'RequestId': rid,
+            # 进度表：新号一条教程都没播过 -> 空
+            'TutorialIds': [int(x) for x in prog],
+        }
+    if num == 4000:
+        return {
+            'Protocol': 4000,
+            'SessionKey': {'AccountServerId': account_id, 'MxToken': mxtoken},
+            'ServerTimeTicks': int(ticks),
+            'ServerNotification': 0,
+            'RequestId': rid,
+            'ItemDBs': simple_item_rows(account_id),
+            'ExpiryItemDBs': [],
+        }
+    if num == 26000:
+        return {
+            'Protocol': 26000,
+            'SessionKey': {'AccountServerId': account_id, 'MxToken': mxtoken},
+            'ServerTimeTicks': int(ticks),
+            'ServerNotification': 0,
+            'RequestId': rid,
+            'HasValidData': False,
+            'ContentSaveDB': None,
+            'EventContentChangeDB': None,
+        }
+    raise ValueError('simple_payload 不支持协议 %r' % (num,))
+
+
+def simple_payload_json(num, **kw):
+    """紧凑 JSON 字符串（= 真正进 packet 的那串字节）。"""
+    return json.dumps(simple_build(num, **kw), ensure_ascii=False, separators=(',', ':'))
+
+
+# ---------------------------------------------------------------- bridge 运行时
+def simple_num_from_rec(rec):
+    """从日志记录里恢复协议号：Hash >> 32（官方/客户端口径）。"""
+    try:
+        h = rec.get('req_Hash')
+    except Exception:
+        return None
+    try:
+        if isinstance(h, bool):
+            return None
+        if isinstance(h, int) and h > 0:
+            return h >> 32
+        if isinstance(h, str) and h.isdigit():
+            return int(h) >> 32
+    except Exception:
+        pass
+    return None
+
+
+def simple_account_id(rec=None, base=None):
+    """账号号优先级：SESSION.account_id -> 请求片段里的 AccountServerId -> 文件 -> 默认号。"""
+    try:
+        sess = globals().get('SESSION')
+        aid = getattr(sess, 'account_id', None)
+        if aid:
+            return int(aid)
+    except Exception:
+        pass
+    txt = ''
+    if isinstance(rec, dict):
+        for k in ('simple_frag', 'req_frag_head'):
+            v = rec.get(k)
+            if isinstance(v, str) and v:
+                txt = v
+                break
+    if txt:
+        m = re.search(r'"AccountServerId"\s*:\s*(\d+)', txt)
+        if m:
+            try:
+                v = int(m.group(1))
+            except Exception:
+                v = 0
+            if v > 0:
+                return v
+    _p, v = simple_read_switch(SIMPLE_ACCOUNT_FILE, base)
+    if v:
+        m = re.match(r'^\s*(\d{4,})\s*$', v)
+        if m:
+            return int(m.group(1))
+    return SIMPLE_DEFAULT_ACCOUNT
+
+
+def simple_mxtoken_from_frag(frag, account_id):
+    """官方是「回显客户端的 MxToken」；拿不到就按账号派生（与 gen_simple 的默认值一致）。"""
+    if isinstance(frag, str) and frag:
+        m = re.search(r'"MxToken"\s*:\s*"([A-Za-z0-9+/=_-]{16,})"', frag)
+        if m:
+            return m.group(1)
+    return simple_mxtoken(account_id)
+
+
+def simple_route(rec, name=None, num=None, frag=None, send=None, base=None):
+    """bridge 分发处调用。返回 (code, body, ctype) 表示已接管；返回 None 表示交回原兜底。
+
+    send = cn_wire.wrap_response(protocol_name, inner_obj, requestid) -> (wire, plain, key)
+    注入而不是直接 import，这样本文件离线（gen_simple / patch_simple --verify）也能跑同一条代码路径。
+    """
+    if num is None:
+        num = simple_num_from_rec(rec)
+    try:
+        num = int(num)
+    except Exception:
+        return None
+    if num not in SIMPLE_PROTOCOLS:
+        return None
+    if not simple_switch_on(num, base):
+        if isinstance(rec, dict):
+            rec['simple_off'] = num
+        return None
+    if send is None:
+        return None
+
+    if isinstance(rec, dict) and isinstance(frag, str) and frag:
+        rec['simple_frag'] = frag[:2000]
+
+    account_id = simple_account_id(rec, base)
+    mxtoken = simple_mxtoken_from_frag(frag, account_id)
+    ticks = simple_ticks(simple_ticks_mode(base))
+
+    rid = None
+    _pk = globals().get('pick_requestid')
+    if callable(_pk):
+        try:
+            rid = _pk(rec)
+        except Exception:
+            rid = None
+    if not rid:
+        rid = str(uuid.uuid4())
+
+    obj = simple_build(num, account_id, mxtoken, rid, ticks)
+    proto_name = SIMPLE_NAMES[num]
+
+    wire, plain, key = send(proto_name, obj, rid)
+
+    if isinstance(rec, dict):
+        rec['gen_kind'] = 'simple-%d' % num
+        rec['fallback'] = 'simple-envelope'
+        rec['simple_proto'] = num
+        rec['simple_name'] = proto_name
+        rec['simple_account_id'] = account_id
+        rec['simple_keys'] = len(obj)
+        rec['simple_item_rows'] = len(obj.get('ItemDBs') or [])
+        rec['simple_tutorial_ids'] = len(obj.get('TutorialIds') or [])
+        rec['simple_ticks'] = int(ticks)
+        rec['enc_requestid'] = rid
+        rec['enc_inner_keys'] = len(obj)
+        rec['enc_plain_len'] = len(plain)
+        rec['enc_body_len'] = len(wire)
+        rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+    return 200, wire, 'text/plain; charset=utf-8'
+# <<< BAPATCH-SIMPLE-PAYLOAD v1 END <<<
+# >>> BAPATCH-P3-PAYLOAD v1 BEGIN >>> (deploy/patch_3.py 内嵌 P3_PAYLOAD_SRC，sha256=ee55b4cd2c9bd01eda252fa1550935e3e2637a12600759a4ff9652045d60789a) >>>
+# -*- coding: utf-8 -*-
+"""NetworkTime_Sync (protocol 3) 载荷生成器 —— 内嵌进 bridge 的运行时真源。
+
+与 deploy/gen3.py 的 build_3() 逐字节等价（patch_3.py --verify 用真生成器比对）：
+    acct = Account(server_id, mxtoken, request_id, now)      # now 必须是 datetime
+    obj  = build_3(acct)                                     # ReceiveTick == EchoSendTick
+    顶层键序 = official_spec.json protocols["3"].top_key_order
+
+官方 04_3 抓包（report/_tmp/official_decoded_201/04_3_api_networktime_sync.response.json）：
+    inner 314 B / wire 620 B，7 键；
+    ReceiveTick == EchoSendTick == 639304002554622693；
+    ServerTimeTicks = ...705（比前两者大 12 ticks = 1.2 µs，同一次取时的抖动）；
+    inner.RequestId == outer.requestid（同一个 uuid）。
+请求 DTO 没有业务字段（只有 HttpMessage 外壳），所以服务端**没有**可回显的客户端 tick，
+两个 tick 都填「收到请求那一刻」就是官方行为。
+
+tick 口径 = 服务器本地墙钟（不是 UTC）：
+    官方 ServerTimeTicks=639304002554622705 解出来是 2026-11-16T04:30:55.462，
+    HAR 里同一条请求的 startedDateTime=2026-11-15T20:30:55.625Z（Unix 口径），
+    _timeline.txt 的 Beijing 列写 04:30:55.625 —— 即官方发的是北京墙钟。
+    客户端是北京设备，只有同口径才能算出 ≈0 的偏移；发 UTC 会整体差 8 小时。
+    需要时可用 cn_3_ticks.txt 写 'utc' 覆盖。
+
+约定（原样贴进 bridge 的模块命名空间，所以）：
+  * 不写 from __future__ / 不写 if __name__ == '__main__'；
+  * 只用标准库，且全部用 _p3* 别名 import，不污染 bridge 现有全局名；
+  * import 期不碰文件系统、不碰网络。
+"""
+import base64 as _p3base64
+import datetime as _p3dt
+import hashlib as _p3hashlib
+import os as _p3os
+import re as _p3re
+import uuid as _p3uuid
+
+P3_PROTOCOL = 3
+P3_NAME = 'NetworkTime_Sync'
+
+# official_spec.json -> protocols["3"].top_key_order
+# （patch_3.py --verify 会重新读 spec 并断言这张表没过期）
+P3_ORDER = ('Protocol', 'SessionKey', 'ServerTimeTicks', 'ServerNotification',
+            'RequestId', 'ReceiveTick', 'EchoSendTick')
+
+P3_SWITCH_FILE = 'cn_3.txt'
+P3_TICKS_FILE = 'cn_3_ticks.txt'
+# 开关查找顺序：bridge 所在目录 -> 线上 tools/ -> 线上 bapatch/
+P3_FALLBACK_DIRS = ('/www/wwwroot/bapatch/tools', '/www/wwwroot/bapatch')
+P3_DEFAULT_ACCOUNT = 10015354380
+P3_EPOCH = _p3dt.datetime(1, 1, 1)
+
+
+# ---------------------------------------------------------------- 开关 / 小工具
+def p3_dirs():
+    """开关文件的候选目录（有序）。"""
+    out = []
+    try:
+        out.append(_p3os.path.dirname(_p3os.path.abspath(__file__)))
+    except Exception:
+        pass
+    for d in P3_FALLBACK_DIRS:
+        if d not in out:
+            out.append(d)
+    return out
+
+
+def p3_read_file(fn, base=None):
+    """读一个小开关文件 -> (路径, 内容)。找不到 -> (None, None)。"""
+    dirs = ([base] if base else []) + p3_dirs()
+    for d in dirs:
+        if not d:
+            continue
+        p = _p3os.path.join(d, fn)
+        try:
+            with open(p, 'r') as fh:
+                return p, fh.read().strip()
+        except Exception:
+            continue
+    return None, None
+
+
+def p3_switch_on(base=None):
+    """协议 3 是否启用。缺失 / 读不到 / 内容不是真值 -> False（fail-safe）。"""
+    _p, v = p3_read_file(P3_SWITCH_FILE, base)
+    if v is None:
+        return False
+    return v.strip().lower() in ('1', 'on', 'true', 'yes')
+
+
+def p3_wants(num, base=None):
+    """协议号是 3 且开关打开 —— 给 bridge 的分发处做前置判断（不解密、不构包）。"""
+    try:
+        n = int(num)
+    except Exception:
+        return False
+    return n == P3_PROTOCOL and p3_switch_on(base)
+
+
+def p3_num(num=None, name=None):
+    """协议号判定：Hash>>32 命中 3，或者外层 protocol 就是 NetworkTime_Sync。"""
+    try:
+        n = int(num)
+    except Exception:
+        n = None
+    if n == P3_PROTOCOL:
+        return P3_PROTOCOL
+    if isinstance(name, str) and name == P3_NAME:
+        return P3_PROTOCOL
+    return None
+
+
+def p3_name_hit(name):
+    """廉价预判（不碰文件系统）：外层协议名就是 NetworkTime_Sync？
+
+    HOOK-E 在**每个**请求上都会经过，所以先用一次字符串比较挡住其它协议，
+    连开关文件都不读；只有命中协议 3 才去碰盘。
+    """
+    return isinstance(name, str) and name == P3_NAME
+
+
+def p3_ticks_mode(base=None):
+    _p, v = p3_read_file(P3_TICKS_FILE, base)
+    if v and v.strip().lower() == 'utc':
+        return 'utc'
+    return 'local'
+
+
+def p3_ticks(dt=None, mode='local'):
+    """.NET ticks（100ns，自 0001-01-01）。整数运算，不经 float。"""
+    if dt is None:
+        if str(mode).lower() == 'utc':
+            dt = _p3dt.datetime.now(_p3dt.timezone.utc).replace(tzinfo=None)
+        else:
+            dt = _p3dt.datetime.now()
+    elif getattr(dt, 'tzinfo', None) is not None:
+        if str(mode).lower() == 'utc':
+            dt = dt.astimezone(_p3dt.timezone.utc).replace(tzinfo=None)
+        else:
+            dt = dt.astimezone().replace(tzinfo=None)
+    delta = dt - P3_EPOCH
+    return (delta.days * 86400 + delta.seconds) * 10000000 + delta.microseconds * 10
+
+
+def p3_now(mode='local'):
+    if str(mode).lower() == 'utc':
+        return _p3dt.datetime.now(_p3dt.timezone.utc).replace(tzinfo=None)
+    return _p3dt.datetime.now()
+
+
+# ---------------------------------------------------------------- 账号 / 令牌
+def p3_session_from_frag(frag):
+    """从客户端请求片段里取 SessionKey（官方就是原样回显它）。"""
+    sid = mx = None
+    if isinstance(frag, str) and frag:
+        m = _p3re.search(r'"AccountServerId"\s*:\s*(\d+)', frag)
+        if m:
+            sid = int(m.group(1))
+        m = _p3re.search(r'"MxToken"\s*:\s*"([^"]{8,200})"', frag)
+        if m:
+            mx = m.group(1)
+    return sid, mx
+
+
+def p3_account_id(rec=None, frag=None):
+    sid, _mx = p3_session_from_frag(frag)
+    if sid:
+        return int(sid)
+    try:
+        sess = globals().get('SESSION')
+        sk = getattr(sess, 'session_key', None) or {}
+        if isinstance(sk, dict) and sk.get('AccountServerId'):
+            return int(sk['AccountServerId'])
+        aid = getattr(sess, 'account_id', None)
+        if aid:
+            return int(aid)
+    except Exception:
+        pass
+    if isinstance(rec, dict):
+        for k in ('acct_server_id', 'req_AccountServerId'):
+            v = rec.get(k)
+            if v:
+                try:
+                    return int(v)
+                except Exception:
+                    pass
+    return P3_DEFAULT_ACCOUNT
+
+
+def p3_mxtoken(account_id):
+    """由账号派生 64 字符 base64 MxToken（sha384 48 字节，与 gen_common.Account 同一公式）。"""
+    raw = _p3hashlib.sha384(
+        ('ba-private-server:%d' % int(account_id)).encode('utf-8')).digest()
+    return _p3base64.b64encode(raw).decode('ascii')
+
+
+def p3_requestid(rec=None):
+    """外层 requestid / 内层 RequestId 用同一个值（官方逐字节相同）。"""
+    rid = None
+    fn = globals().get('pick_requestid')
+    if callable(fn):
+        try:
+            rid = fn(rec if isinstance(rec, dict) else {})
+        except Exception:
+            rid = None
+    if not rid:
+        rid = str(_p3uuid.uuid4())
+    return rid
+
+
+# ---------------------------------------------------------------- 载荷
+def p3_build(account_id, mxtoken, request_id, ticks, server_ticks=None):
+    """7 键官方结构。
+
+    ReceiveTick == EchoSendTick == ticks  —— 红线：绝不能是 0（客户端靠它算时钟偏移）。
+    ServerTimeTicks = server_ticks（不给就同 ticks）。官方 ServerTimeTicks 比两个 tick 大
+    12 ticks（1.2 µs）：那是「收到请求」和「组包发出」两次取时之差，运行时按两次采样给。
+    """
+    ticks = int(ticks)
+    stt = ticks if server_ticks is None else int(server_ticks)
+    if stt < ticks:
+        stt = ticks
+    obj = {
+        'Protocol': P3_PROTOCOL,
+        'SessionKey': {'AccountServerId': int(account_id), 'MxToken': mxtoken},
+        'ServerTimeTicks': stt,
+        'ServerNotification': 0,
+        'RequestId': request_id,
+        'ReceiveTick': ticks,
+        'EchoSendTick': ticks,
+    }
+    return dict((k, obj[k]) for k in P3_ORDER if k in obj)
+
+
+def p3_inner_len(obj):
+    return len(json_dumps_compact(obj))
+
+
+def json_dumps_compact(obj):
+    import json as _j
+    return _j.dumps(obj, ensure_ascii=False, separators=(',', ':'))
+
+
+def p3_route(rec, name=None, num=None, frag=None, send=None, base=None, hook=None):
+    """协议 3 的接管线。返回 (200, wire, ctype)；不管 -> None（交回原有兜底）。
+
+    send 必须注入（bridge 传 cn_wire.wrap_response，测试可传替身）：
+        send(protocol_name, inner_obj, requestid) -> (wire, plain, key)
+    任何异常都往上抛，由 hook 的 try/except 兜住并记 rec['p3_err']。
+    """
+    proto = p3_num(num, name)
+    if proto is None:
+        return None
+    if not p3_switch_on(base):
+        if isinstance(rec, dict):
+            rec['p3_off'] = proto
+        return None
+    if send is None:
+        return None
+
+    if isinstance(rec, dict) and isinstance(frag, str) and frag:
+        rec['p3_frag_head'] = frag[:200]
+
+    sid_frag, mx_frag = p3_session_from_frag(frag)
+    account_id = p3_account_id(rec, frag)
+    mxtoken = mx_frag or p3_mxtoken(account_id)
+    mode = p3_ticks_mode(base)
+    ticks = p3_ticks(p3_now(mode), mode)                 # 收到请求那一刻 -> 两个 tick
+    server_ticks = p3_ticks(p3_now(mode), mode)          # 组包那一刻 -> ServerTimeTicks
+    rid = p3_requestid(rec)
+
+    obj = p3_build(account_id, mxtoken, rid, ticks, server_ticks=server_ticks)
+    wire, plain, key = send(P3_NAME, obj, rid)
+
+    if isinstance(rec, dict):
+        rec['gen_kind'] = 'networktime-3'
+        rec['p3_hook'] = hook or '?'
+        rec['p3_proto'] = proto
+        rec['p3_name'] = P3_NAME
+        rec['p3_account_id'] = account_id
+        rec['p3_session_from_request'] = bool(sid_frag or mx_frag)
+        rec['p3_ticks_mode'] = mode
+        rec['p3_ticks'] = int(ticks)
+        rec['p3_server_ticks'] = obj['ServerTimeTicks']
+        rec['p3_server_tick_delta'] = obj['ServerTimeTicks'] - obj['ReceiveTick']
+        rec['p3_receive_tick'] = obj['ReceiveTick']
+        rec['p3_echo_tick'] = obj['EchoSendTick']
+        rec['p3_tick_delta'] = obj['EchoSendTick'] - obj['ReceiveTick']
+        rec['p3_requestid_echo'] = (obj.get('RequestId') == rid)
+        rec['p3_keys'] = len(obj)
+        rec['enc_requestid'] = rid
+        rec['enc_inner_keys'] = len(obj)
+        rec['enc_plain_len'] = len(plain)
+        rec['enc_body_len'] = len(wire)
+        rec['_send_opts'] = {'ctype': 'text/plain; charset=utf-8', 'close': True}
+    return 200, wire, 'text/plain; charset=utf-8'
+# <<< BAPATCH-P3-PAYLOAD v1 END <<<
+# >>> BAPATCH-RELAY-PAYLOAD v1 BEGIN >>> (deploy/patch_relay.py 内嵌 RL_PAYLOAD_SRC，sha256=8db678f98cf18e39fca2e9fbde49838edf85f4b92e8053a3608346deb720b5a2) >>>
+# -*- coding: utf-8 -*-
+"""未知协议 -> 本地 Shittim 转发（bridge 运行时真源，patch_relay.py --verify 逐字节比对）。
+
+问题：_bridge() 的 `if name is None:` 分支先调 _generic_protocol_response()，它只回
+     {"Protocol":<num>, "ServerTimeTicks":…, "ServerNotification":0, …} 的 min+base
+     空壳，不会把客户端真实请求送去 Shittim。8000 / 8006 / 90011 / 35003 / 16000 卡在这里。
+
+做法（开关打开时）：
+     ① cn_cipher.decode_packet(packet_b64, proto_str) 解出客户端真实请求；
+     ② ensure_session(rec) 打 Account_CheckNexon(1014) 拿真 SessionKey 并注入；
+     ③ post_gateway(req) POST 到本地 Shittim 的 /api/gateway；
+     ④ unwrap_gateway_response(raw) 拿 dict；
+     ⑤ bridge 自己的 _cn_envelope(proto_str, obj, rec) 包成 CN 信封返回。
+     任何一步不成就 return None，原逻辑（min+base / forward）照旧，绝不 500。
+
+红线：
+  * RL_HANDLED 里的协议号（3/1005/1017/1019/24000/26000/4000/90004）**显式排除**。
+    本机 protocol_names.txt 缺失时 24000 / 90004 的 name 也是 None，没有这张表，
+    开关一开就会把它们从真生成器手里抢走。
+  * Account_CheckNexon(1014) 在名字表里，结构上到不了本分支；RL_LOCAL.busy 再挡
+    一层同线程重入（嵌套调用直接落回原逻辑，不死循环）。
+  * 开关缺失/0 => 完全不改行为（fail-safe）。
+
+开关查找顺序（与 p3_read_file / simple_read_switch 一致）：
+    bridge 所在目录 -> /www/wwwroot/bapatch/tools -> /www/wwwroot/bapatch
+
+日志字段（写进 rec）：relay_on / relay_used / relay_code / relay_resp_len /
+    relay_protocol / relay_err / relay_fallthrough
+  辅助：relay_protocol_num / relay_num / relay_frag_len / relay_shittim_keys /
+    relay_session_injected / relay_gateway_protocol / relay_account_id
+
+约定（原样贴进 bridge 模块命名空间）：
+  * 不写 from __future__，不写 __main__ 块；
+  * 只用标准库，全部用 _rl* 别名 import，不污染 bridge 现有全局名；
+  * import 期不碰文件系统、不碰网络；bridge 依赖一律 globals().get() 运行时取。
+"""
+import json as _rljson
+import os as _rlos
+import re as _rlre
+import threading as _rlthreading
+
+RL_SWITCH_FILE = 'cn_relay_unknown.txt'
+RL_FALLBACK_DIRS = ('/www/wwwroot/bapatch/tools', '/www/wwwroot/bapatch')
+# 有真生成器 / 别的 hook 负责的协议号：本 hook 一律不碰（名字表缺名字时尤其重要）
+RL_HANDLED = frozenset((3, 1005, 1017, 1019, 24000, 26000, 4000, 90004))
+RL_SKIP_NAMES = frozenset(('Account_CheckNexon',))
+RL_LOCAL = _rlthreading.local()
+
+
+# ---------------------------------------------------------------- 开关
+def rl_dirs():
+    """开关文件的候选目录（有序）。"""
+    out = []
+    try:
+        out.append(_rlos.path.dirname(_rlos.path.abspath(__file__)))
+    except Exception:
+        pass
+    for d in RL_FALLBACK_DIRS:
+        if d not in out:
+            out.append(d)
+    return out
+
+
+def rl_read_file(fn, base=None):
+    """读一个小开关文件 -> (路径, 内容)。找不到 -> (None, None)。"""
+    dirs = ([base] if base else []) + rl_dirs()
+    for d in dirs:
+        if not d:
+            continue
+        p = _rlos.path.join(d, fn)
+        try:
+            with open(p, 'r') as fh:
+                return p, fh.read().strip()
+        except Exception:
+            continue
+    return None, None
+
+
+def rl_switch_on(base=None):
+    """未知协议转发是否启用。缺失 / 读不到 / 内容不是真值 -> False（fail-safe）。"""
+    _p, v = rl_read_file(RL_SWITCH_FILE, base)
+    if v is None:
+        return False
+    return v.strip().lower() in ('1', 'on', 'true', 'yes')
+
+
+# ---------------------------------------------------------------- 请求重建
+def rl_num_from_frag(frag):
+    """协议号 = 请求里 Hash 的高 32 位（客户端每个请求都自带 Hash）。"""
+    if not isinstance(frag, str) or not frag:
+        return None
+    m = _rlre.search(r'"Hash"\s*:\s*(\d+)', frag)
+    if not m:
+        return None
+    try:
+        return int(m.group(1)) >> 32
+    except Exception:
+        return None
+
+
+# >>> BAPATCH-RLFIX v1 BEGIN >>> (deploy/patch_relay_fix.py 内嵌 RLFIX_HELPER_SRC，sha256=ccdc3780246a93998bced42cf28d7473ed9a277bf47feda98450617e21217986) >>>
+# -*- coding: utf-8 -*-
+"""BAPATCH-RLFIX v1：relay 运行时修正（协议号拼接 / 会话失效重试）。
+
+被 patch_relay_fix.py 插在 patch_relay.py 的 RL_PAYLOAD 里（rl_request_json 之前），
+relay v1（cn_relay_unknown.txt）与 relay2（cn_relay_known.txt）两条转发路径共用。
+
+* _rl_build_request(num, text, rec)：
+  decode_packet 解出的 fragment 偶尔以协议号最后一位数字开头（19004 -> "4,…"），
+  原逻辑 '{"Protocol":19004' + "4,…" 会拼成 190044。这里按候选顺序试，只有
+  json.loads 成功、Protocol == num、且不是空 dict 才接受；全部不成立 -> None。
+* _rl_is_auth_fail(obj)：识别 Shittim 的鉴权失败信封。
+* _rl_retry_on_auth_fail(...)：清桥会话缓存（同一把 SESSION.lock）-> 重新
+  ensure_session -> 重新 post_gateway，只重试一次。
+
+日志字段：rl_req_build / rl_req_frag_head / rl_req_build_err /
+          rl_session_retry / rl_session_retry_ok。
+"""
+RLFIX_FRAG_DROP_MAX = 8
+
+
+def _rl_frag_candidates(num, text):
+    """按候选顺序给出 (候选号, 要丢给 json.loads 的文本)。
+
+    1     原逻辑：'{"Protocol":<num>' + text
+    2     text[0] 是数字：从第一个逗号处截断后再拼
+    3-10  依次去掉开头 1..8 个字符，再从第一个逗号处截断后拼
+    11    text 以 } / , 之外的可疑字符开头：同样从第一个逗号处截断
+
+    没有逗号可截的候选直接跳过（拼不出合法 JSON）。重复文本不剔除：先命中的
+    候选号就是 rec['rl_req_build']，顺序本身就是可核对的事实。
+    """
+    n = int(num)
+    cands = [(1, '{"Protocol":%d' % n + text)]
+    comma = text.find(',')
+    if text[:1].isdigit() and comma >= 0:
+        cands.append((2, '{"Protocol":%d' % n + text[comma:]))
+    for k in range(1, RLFIX_FRAG_DROP_MAX + 1):
+        rest = text[k:]
+        c = rest.find(',')
+        if c >= 0:
+            cands.append((2 + k, '{"Protocol":%d' % n + rest[c:]))
+    if text[:1] and text[0] not in ('}', ',') and comma >= 0:
+        cands.append((3 + RLFIX_FRAG_DROP_MAX, '{"Protocol":%d' % n + text[comma:]))
+    return cands
+
+
+def _rl_build_request(num, text, rec=None):
+    """fragment -> 可发给 Shittim 的请求 dict；所有候选都不成立 -> None（不猜）。"""
+    if isinstance(rec, dict):
+        rec['rl_req_frag_head'] = text[:200]
+        rec['rl_req_build'] = 0
+        rec['rl_req_build_err'] = ''
+    try:
+        n = int(num)
+    except Exception as e:
+        if isinstance(rec, dict):
+            rec['rl_req_build_err'] = 'bad num: %r' % (e,)
+        return None
+    errs = []
+    for cid, body in _rl_frag_candidates(n, text):
+        try:
+            obj = _rljson.loads(body)
+        except Exception as e:
+            if len(errs) < 4:
+                errs.append('c%d:%s' % (cid, type(e).__name__))
+            continue
+        if not isinstance(obj, dict) or not obj:
+            if len(errs) < 4:
+                errs.append('c%d:not-dict-or-empty' % cid)
+            continue
+        if obj.get('Protocol') != n:
+            if len(errs) < 4:
+                errs.append('c%d:Protocol=%r' % (cid, obj.get('Protocol')))
+            continue
+        if isinstance(rec, dict):
+            rec['rl_req_build'] = cid
+            rec['rl_req_build_err'] = ''
+        return obj
+    if isinstance(rec, dict):
+        rec['rl_req_build_err'] = ('all candidates failed (%d tries): %s'
+                                   % (len(errs), '; '.join(errs)))[:300]
+    return None
+
+
+def _rl_is_auth_fail(obj):
+    """Shittim 的「Session expired or invalid」是否打回来了。"""
+    if not isinstance(obj, dict):
+        return False
+    if obj.get('Protocol') == -1:
+        return True
+    ec = obj.get('ErrorCode')
+    if isinstance(ec, int) and ec != 0:
+        return True
+    msg = str(obj.get('Msg') or obj.get('Message') or '')
+    return 'Session' in msg and ('expired' in msg.lower() or 'invalid' in msg.lower())
+
+
+def _rl_clear_session(rec=None):
+    """清桥缓存的 session_key / account_id（同一把 SESSION.lock）；失败不抛。"""
+    sess = globals().get('SESSION')
+    if sess is None:
+        return False
+    try:
+        lock = getattr(sess, 'lock', None)
+        if lock is not None:
+            with lock:
+                sess.session_key = None
+                sess.account_id = None
+        else:
+            sess.session_key = None
+            sess.account_id = None
+    except Exception as e:
+        if isinstance(rec, dict):
+            rec['rl_session_clear_err'] = repr(e)
+        return False
+    return True
+
+
+def _rl_retry_on_auth_fail(rec, req, post, unwrap, ensure, timeout=None):
+    """鉴权失败后的唯一一次重试：清缓存 -> ensure_session -> post_gateway。
+
+    成功 -> (code, raw, gp, obj)；失败 / 异常 -> None（调用方落回原逻辑，不 500）。
+    日志：rl_session_retry=True / rl_session_retry_ok=True|False。
+    """
+    if not isinstance(rec, dict):
+        return None
+    if rec.get('rl_session_retry'):
+        # 只重试一次：同一个 rec 已经重试过就直接放弃
+        return None
+    rec['rl_session_retry'] = True
+    rec['rl_session_retry_ok'] = False
+    try:
+        _rl_clear_session(rec)
+        sk, _aid = ensure(rec)
+        if sk is None:
+            rec['rl_session_retry_err'] = 'ensure_session returned None'
+            return None
+        req['SessionKey'] = sk
+        if timeout is None:
+            code, raw = post(req)
+        else:
+            try:
+                code, raw = post(req, timeout=timeout)
+            except TypeError:
+                # 变体 bridge 的 post_gateway 可能没有 timeout 形参
+                code, raw = post(req)
+        raw = raw or b''
+        if code == 0:
+            rec['rl_session_retry_err'] = 'gateway unreachable/timeout'
+            return None
+        gp, obj = unwrap(raw)
+        if not isinstance(obj, dict) or _rl_is_auth_fail(obj):
+            rec['rl_session_retry_err'] = 'still auth-failed'
+            return None
+        rec['rl_session_retry_ok'] = True
+        return code, raw, gp, obj
+    except Exception as e:
+        rec['rl_session_retry_err'] = repr(e)
+        return None
+# <<< BAPATCH-RLFIX v1 END <<<
+def rl_request_json(decoded, rec=None):
+    """cn_cipher.decode_packet() 的结果 -> 可发给 Shittim 的请求 dict；失败 -> None。
+
+    decode_packet 的 'json' 只在它认识 protocol token 时才填（参照实现
+    report/_tmp/mx_crypto/cn_cipher.py 的 PROTOCOL_MAP 只有 Account_Auth 一条）；
+    而本 hook 面对的正是「名字表里没有」的 token，所以 'json' 常常是 None。
+    这时用 'fragment'（客户端明文片段，形如 ',"Hash":…,"IsTest":false}'）拼回
+    完整请求：'{"Protocol":<num>' + fragment。Protocol 用数字，交给 Shittim 的
+    enum 反序列化（它本来就接受数字与名字两种写法）。
+    """
+    if not isinstance(decoded, dict):
+        return None
+    js = decoded.get('json')
+    if isinstance(js, dict) and js:
+        return js
+    frag = decoded.get('fragment')
+    if not isinstance(frag, str):
+        return None
+    text = frag.strip()
+    if not text:
+        return None
+    # BAPATCH-RLFIX: 请求片段头落进访问日志（上层已写则不覆盖）
+    if isinstance(rec, dict) and not rec.get('req_frag_head'):
+        rec['req_frag_head'] = text[:300]
+    if text[0] == '{':
+        try:
+            obj = _rljson.loads(text)
+        except Exception:
+            return None
+        return obj if isinstance(obj, dict) else None
+    num = rl_num_from_frag(text)
+    if num is None and isinstance(rec, dict):
+        h = rec.get('req_Hash')
+        if isinstance(h, int) and h > 0:
+            num = h >> 32
+    if num is None:
+        return None
+    # BAPATCH-RLFIX: 统一走 _rl_build_request（候选顺序 + Protocol 硬校验；全失败 -> None）
+    return _rl_build_request(num, text, rec)
+
+
+def rl_num_from_request(decoded, req=None):
+    """协议号：片段 Hash>>32 -> 请求 JSON 的 Hash >>32 -> 请求 JSON 的 Protocol(int)。"""
+    num = None
+    if isinstance(decoded, dict):
+        num = rl_num_from_frag(decoded.get('fragment'))
+    if num is None and isinstance(req, dict):
+        h = req.get('Hash')
+        if isinstance(h, int) and h > 0:
+            num = h >> 32
+        elif isinstance(h, str) and h.strip().isdigit():
+            num = int(h.strip()) >> 32
+    if num is None and isinstance(req, dict):
+        p = req.get('Protocol')
+        if isinstance(p, int) and p > 0:
+            num = p
+    return num
+
+
+# ---------------------------------------------------------------- 转发管线
+def rl_route(rec, proto_str, packet_b64, name=None, envelope=None, base=None):
+    """未知协议的接管线。已接管 -> (code, body, ctype)；不管 -> None（交回原兜底）。
+
+    envelope 必须注入（bridge 传 self._cn_envelope）：
+        envelope(proto_str, inner_obj, rec) -> (code, body, ctype)
+    任何异常都不在这里吞：由 HOOK-A 的 try/except 兜住并记 rec['relay_err']。
+    """
+    if not isinstance(rec, dict):
+        rec = {}
+    on = bool(rl_switch_on(base))
+    rec['relay_on'] = on
+    rec['relay_err'] = ''
+    if not on:
+        rec['relay_fallthrough'] = 'switch-off'
+        return None
+    if isinstance(name, str) and name and name != 'Unknown':
+        rec['relay_fallthrough'] = 'known-name'
+        return None
+    if isinstance(name, str) and name in RL_SKIP_NAMES:
+        rec['relay_fallthrough'] = 'skip-name'
+        return None
+    if getattr(RL_LOCAL, 'busy', False):
+        rec['relay_fallthrough'] = 'reentrant'
+        return None
+    RL_LOCAL.busy = True
+    try:
+        return _rl_relay_once(rec, proto_str, packet_b64, envelope)
+    finally:
+        RL_LOCAL.busy = False
+
+
+def _rl_relay_once(rec, proto_str, packet_b64, envelope):
+    """真正干活的只有这一段；异常往上抛（HOOK-A 负责留痕 + 落回）。"""
+    dec = globals().get('cn_cipher')
+    if dec is None or not hasattr(dec, 'decode_packet'):
+        rec['relay_err'] = 'cn_cipher.decode_packet unavailable'
+        rec['relay_fallthrough'] = 'no-cn_cipher'
+        return None
+    try:
+        decoded = dec.decode_packet(packet_b64, proto_str)
+    except Exception as e:
+        rec['relay_err'] = repr(e)
+        rec['relay_fallthrough'] = 'decode'
+        return None
+    # BAPATCH-RLFIX: decode 结果里的 fragment 头部落日志（上层已写则不覆盖）
+    if isinstance(rec, dict) and not rec.get('req_frag_head'):
+        _frag = decoded.get('fragment') if isinstance(decoded, dict) else None
+        if isinstance(_frag, str):
+            rec['req_frag_head'] = _frag[:300]
+    req = rl_request_json(decoded, rec)
+    if not isinstance(req, dict):
+        rec['relay_fallthrough'] = 'decode-json'
+        return None
+    rec['relay_frag_len'] = len(decoded.get('fragment') or '') if isinstance(decoded, dict) else 0
+    num = rl_num_from_request(decoded, req)
+    rec['relay_num'] = num
+    if num is None:
+        rec['relay_fallthrough'] = 'no-protocol-num'
+        return None
+    if num in RL_HANDLED:
+        # 3/1005/1017/1019/24000/26000/4000/90004 有真生成器：绝不抢
+        rec['relay_fallthrough'] = 'handled-%d' % num
+        return None
+    ensure = globals().get('ensure_session')
+    post = globals().get('post_gateway')
+    unwrap = globals().get('unwrap_gateway_response')
+    if not (callable(ensure) and callable(post) and callable(unwrap)):
+        rec['relay_err'] = ('bridge deps missing: ensure_session=%r post_gateway=%r '
+                            'unwrap_gateway_response=%r'
+                            % (callable(ensure), callable(post), callable(unwrap)))
+        rec['relay_fallthrough'] = 'no-deps'
+        return None
+    sk, aid = ensure(rec)
+    if sk is None:
+        rec['relay_fallthrough'] = 'ensure-session'
+        return None
+    injected = not req.get('SessionKey')
+    if injected:
+        req['SessionKey'] = sk
+    rec['relay_session_injected'] = bool(injected)
+    rec['relay_account_id'] = aid
+    code, raw = post(req)
+    raw = raw or b''
+    rec['relay_code'] = code
+    rec['relay_resp_len'] = len(raw)
+    if code == 0:
+        rec['relay_err'] = 'gateway unreachable/timeout: %r' % (raw[:160],)
+        rec['relay_fallthrough'] = 'gateway-code-0'
+        return None
+    gp, obj = unwrap(raw)
+    if isinstance(gp, (str, int)) or gp is None:
+        rec['relay_gateway_protocol'] = gp
+    else:
+        rec['relay_gateway_protocol'] = repr(gp)
+    if not isinstance(obj, dict):
+        rec['relay_err'] = ('shittim response not dict (code=%r len=%d body=%r)'
+                            % (code, len(raw), raw[:160]))
+        rec['relay_fallthrough'] = 'shittim-non-dict'
+        return None
+    # BAPATCH-RLFIX: Shittim 判定 Session expired/invalid -> 清桥缓存后只重试一次
+    if _rl_is_auth_fail(obj):
+        _rlfix_got = _rl_retry_on_auth_fail(rec, req, post, unwrap, ensure)
+        if _rlfix_got is None:
+            rec['relay_fallthrough'] = 'session-retry-failed'
+            return None
+        code, raw, gp, obj = _rlfix_got
+        rec['relay_code'] = code
+        rec['relay_resp_len'] = len(raw)
+        rec['relay_session_injected'] = True
+        if isinstance(gp, (str, int)) or gp is None:
+            rec['relay_gateway_protocol'] = gp
+        else:
+            rec['relay_gateway_protocol'] = repr(gp)
+    rec['relay_protocol'] = req.get('Protocol') if req.get('Protocol') is not None else num
+    rec['relay_protocol_num'] = num
+    if isinstance(obj.get('Protocol'), int):
+        rec['relay_shittim_protocol'] = obj.get('Protocol')
+    rec['relay_shittim_keys'] = len(obj)
+    out = None
+    if callable(envelope):
+        out = envelope(proto_str, obj, rec)
+    if out is None:
+        rec['relay_fallthrough'] = 'envelope'
+        return None
+    rec['relay_used'] = True
+    rec['relay_fallthrough'] = ''
+    return out
+# <<< BAPATCH-RELAY-PAYLOAD v1 END <<<
+# >>> BAPATCH-RELAY2-PAYLOAD v1 BEGIN >>> (deploy/patch_relay2.py 内嵌 RL2_PAYLOAD_SRC，sha256=cab63ac0e9c6e7440d6879dfda56df040385b821c76417ed38945df14532c32d) >>>
+# -*- coding: utf-8 -*-
+"""名字已知但没有真生成器的协议 -> 本地 Shittim 转发（bridge 运行时真源）。
+
+为什么要这一版：patch_relay.py 的 HOOK-A 挂在 `if name is None:` 分支里，只对「名字表里
+查不到」的协议生效。但 protocol_names.txt 里 Mission_List(8000) / Account_SetTutorial(1006)
+这些名字都在，所以它们进不了那个分支，只能拿到 min+base 空壳。本模块的钩子挂在
+`if proto_int:` **之前**（与它同级、都在 `_bridge` 的语句序列里），名字已知也照样接管。
+
+做法（开关 cn_relay_known.txt 打开时）：
+  ① cn_cipher.decode_packet(packet_b64, proto_str) 解出客户端真实请求（与 HOOK-A 同一个解码器）；
+  ② 复用 relay v1 的 RL_PAYLOAD 里已经验证过的 rl_request_json / rl_num_from_request
+     拼回发给 Shittim 的请求、取出协议号 —— 不另写一套；
+  ③ ensure_session(rec) 打 Account_CheckNexon(1014) 拿真 SessionKey（缺才注入）；
+  ④ post_gateway(req, timeout=8) POST 到本地 Shittim 的 /api/gateway。
+     8 秒而不是默认 40 秒：这条路径每个请求都要走，40 秒会把客户端拖到超时；
+  ⑤ unwrap_gateway_response(raw) -> dict 就用 self._cn_envelope(协议名, obj, rec) 返回。
+     （传协议名不是 token：_cn_envelope 内部会算 base32(md5(名字))，那正好等于客户端
+      请求里带的 token；传 token 会二次哈希，外层 protocol 就对不上了。）
+  任何一步不成就 return None，原逻辑（if proto_int 的 min-envelope / min+base / forward）
+  照旧，绝不 500。
+
+红线：
+  * RL2_HANDLED（1002/1014/1000/1009/1012/1019/2001/3/1005/1017/24000/26000/4000/90004）
+    一律不碰：要么在更前面的分支已经 return（结构上到不了这里），要么有真生成器
+    （24000 / 1017 / 90004 在 _generic_protocol_response 里）。排除表是双保险。
+  * Account_CheckNexon 名字级排除 + RL2_LOCAL.busy 同线程重入保护：ensure_session 内部
+    那次 1014 直接走 post_gateway、不经过 bridge，嵌套调用也被挡住，不会递归。
+  * 开关缺失 / 不是真值 => 完全不改行为（fail-safe）。
+
+依赖（运行时从 bridge 全局取，取不到就落回，不抛）：
+    cn_cipher.decode_packet / ensure_session / post_gateway / unwrap_gateway_response
+    rl_request_json / rl_num_from_request / rl_read_file（= patch_relay.py 的 RL_PAYLOAD）
+
+开关查找顺序（委托 rl_read_file，与 patch_3 / patch_relay 一致）：
+    bridge 所在目录 -> /www/wwwroot/bapatch/tools -> /www/wwwroot/bapatch
+
+日志字段（写进 rec）：
+    relay2_on / relay2_used / relay2_code / relay2_resp_len / relay2_protocol /
+    relay2_err / relay2_fallthrough
+  辅助：relay2_num / relay2_name / relay2_session_injected / relay2_account_id /
+    relay2_gateway_protocol / relay2_shittim_protocol / relay2_shittim_keys
+
+约定（原样贴进 bridge 模块命名空间）：
+  * 不写 from __future__，不写 __main__ 块；
+  * 只用标准库，全部 _rl2* 别名 import，不污染 bridge 现有全局名；
+  * import 期不碰文件系统、不碰网络；bridge 依赖一律 globals().get() 运行时取。
+"""
+import os as _rl2os
+import threading as _rl2threading
+
+RL2_VER = 'v1'
+RL2_SWITCH_FILE = 'cn_relay_known.txt'
+RL2_FALLBACK_DIRS = ('/www/wwwroot/bapatch/tools', '/www/wwwroot/bapatch')
+# 转发超时：这条路径每个请求都走，必须短（默认 40 秒会让客户端超时）
+RL2_TIMEOUT = 8
+# 有真生成器 / 更前面的专分支负责的协议号：本 hook 一律不碰（双保险）
+RL2_HANDLED = frozenset((1002, 1014, 1000, 1009, 1012, 1019, 2001, 3, 1005, 1017,
+                         24000, 26000, 4000, 90004))
+RL2_SKIP_NAMES = frozenset(('Account_CheckNexon', 'Account_Auth', 'Account_Auth2',
+                            'Account_LoginSync', 'Account_Nickname', 'Account_CallName'))
+RL2_LOCAL = _rl2threading.local()
+
+
+# ---------------------------------------------------------------- 开关
+def rl2_dirs():
+    """开关文件的候选目录（有序）：bridge 目录 -> bapatch/tools -> bapatch。"""
+    out = []
+    try:
+        out.append(_rl2os.path.dirname(_rl2os.path.abspath(__file__)))
+    except Exception:
+        pass
+    for d in RL2_FALLBACK_DIRS:
+        if d not in out:
+            out.append(d)
+    return out
+
+
+def rl2_read_file(fn, base=None):
+    """读一个小开关文件 -> (路径, 内容)。优先复用 relay v1 的 rl_read_file。"""
+    rd = globals().get('rl_read_file')
+    if callable(rd):
+        try:
+            return rd(fn, base)
+        except Exception:
+            pass
+    dirs = ([base] if base else []) + rl2_dirs()
+    for d in dirs:
+        if not d:
+            continue
+        p = _rl2os.path.join(d, fn)
+        try:
+            with open(p, 'r') as fh:
+                return p, fh.read().strip()
+        except Exception:
+            continue
+    return None, None
+
+
+def rl2_switch_on(base=None):
+    """cn_relay_known.txt 是否打开。缺失 / 读不到 / 内容不是真值 -> False（fail-safe）。"""
+    _p, v = rl2_read_file(RL2_SWITCH_FILE, base)
+    if v is None:
+        return False
+    return v.strip().lower() in ('1', 'on', 'true', 'yes')
+
+
+# ---------------------------------------------------------------- 转发管线
+def rl2_route(rec, proto_str, packet_b64, name=None, envelope=None, base=None):
+    """名字已知（但没有真生成器）的协议接管线。接管 -> (code, body, ctype)；不管 -> None。
+
+    envelope 必须注入（bridge 传 self._cn_envelope）：
+        envelope(协议名, inner_obj, rec) -> (code, body, ctype)
+      （传**协议名**不是客户端 token：_cn_envelope 内部算 base32(md5(名字))，那才等于
+        客户端请求里带的 token；传 token 会二次哈希。）
+    任何异常都不在这里吞：由 HOOK 的 try/except 兜住并记 rec['relay2_err']。
+    """
+    if not isinstance(rec, dict):
+        rec = {}
+    on = bool(rl2_switch_on(base))
+    rec['relay2_on'] = on
+    rec['relay2_err'] = ''
+    if not on:
+        rec['relay2_fallthrough'] = 'switch-off'
+        return None
+    if isinstance(name, str) and name in RL2_SKIP_NAMES:
+        rec['relay2_fallthrough'] = 'skip-name'
+        return None
+    if getattr(RL2_LOCAL, 'busy', False):
+        rec['relay2_fallthrough'] = 'reentrant'
+        return None
+    RL2_LOCAL.busy = True
+    try:
+        return _rl2_relay_once(rec, proto_str, packet_b64, name, envelope)
+    finally:
+        RL2_LOCAL.busy = False
+
+
+def _rl2_relay_once(rec, proto_str, packet_b64, name, envelope):
+    """真正干活的只有这一段；异常往上抛（HOOK 负责留痕 + 落回）。"""
+    dec = globals().get('cn_cipher')
+    if dec is None or not hasattr(dec, 'decode_packet'):
+        rec['relay2_err'] = 'cn_cipher.decode_packet unavailable'
+        rec['relay2_fallthrough'] = 'no-cn_cipher'
+        return None
+    # 复用 patch_relay.py 的 RL_PAYLOAD：请求重建 / 协议号提取只信这一份实现
+    req_builder = globals().get('rl_request_json')
+    num_reader = globals().get('rl_num_from_request')
+    if not (callable(req_builder) and callable(num_reader)):
+        rec['relay2_err'] = ('relay v1 payload missing: rl_request_json=%r '
+                             'rl_num_from_request=%r'
+                             % (callable(req_builder), callable(num_reader)))
+        rec['relay2_fallthrough'] = 'no-relay1'
+        return None
+    try:
+        decoded = dec.decode_packet(packet_b64, proto_str)
+    except Exception as e:
+        rec['relay2_err'] = repr(e)
+        rec['relay2_fallthrough'] = 'decode'
+        return None
+    # BAPATCH-RLFIX: decode 结果里的 fragment 头部落日志（上层已写则不覆盖）
+    if isinstance(rec, dict) and not rec.get('req_frag_head'):
+        _frag = decoded.get('fragment') if isinstance(decoded, dict) else None
+        if isinstance(_frag, str):
+            rec['req_frag_head'] = _frag[:300]
+    req = req_builder(decoded, rec)
+    if not isinstance(req, dict):
+        rec['relay2_fallthrough'] = 'decode-json'
+        return None
+    num = num_reader(decoded, req)
+    rec['relay2_num'] = num
+    rec['relay2_name'] = name if isinstance(name, str) else None
+    if num is None:
+        rec['relay2_fallthrough'] = 'no-protocol-num'
+        return None
+    if num in RL2_HANDLED:
+        # 1002/1014/3/1005/1017/24000/26000/4000/90004 … 有真生成器或专分支：绝不抢
+        rec['relay2_fallthrough'] = 'handled-%d' % num
+        return None
+    ensure = globals().get('ensure_session')
+    post = globals().get('post_gateway')
+    unwrap = globals().get('unwrap_gateway_response')
+    if not (callable(ensure) and callable(post) and callable(unwrap)):
+        rec['relay2_err'] = ('bridge deps missing: ensure_session=%r post_gateway=%r '
+                             'unwrap_gateway_response=%r'
+                             % (callable(ensure), callable(post), callable(unwrap)))
+        rec['relay2_fallthrough'] = 'no-deps'
+        return None
+    sk, aid = ensure(rec)
+    if sk is None:
+        rec['relay2_fallthrough'] = 'ensure-session'
+        return None
+    injected = not req.get('SessionKey')
+    if injected:
+        req['SessionKey'] = sk
+    rec['relay2_session_injected'] = bool(injected)
+    rec['relay2_account_id'] = aid
+    try:
+        code, raw = post(req, timeout=RL2_TIMEOUT)
+    except TypeError:
+        # 变体 bridge 的 post_gateway 可能没有 timeout 形参：退回默认总比 500 好
+        code, raw = post(req)
+    raw = raw or b''
+    rec['relay2_code'] = code
+    rec['relay2_resp_len'] = len(raw)
+    if code == 0:
+        rec['relay2_err'] = 'gateway unreachable/timeout: %r' % (raw[:160],)
+        rec['relay2_fallthrough'] = 'gateway-code-0'
+        return None
+    gp, obj = unwrap(raw)
+    if gp is None or isinstance(gp, (str, int)):
+        rec['relay2_gateway_protocol'] = gp
+    else:
+        rec['relay2_gateway_protocol'] = repr(gp)
+    if not isinstance(obj, dict):
+        rec['relay2_err'] = ('shittim response not dict (code=%r len=%d body=%r)'
+                             % (code, len(raw), raw[:160]))
+        rec['relay2_fallthrough'] = 'shittim-non-dict'
+        return None
+    # BAPATCH-RLFIX: Shittim 判定 Session expired/invalid -> 清桥缓存后只重试一次
+    if _rl_is_auth_fail(obj):
+        _rlfix_got = _rl_retry_on_auth_fail(rec, req, post, unwrap, ensure,
+                                           timeout=RL2_TIMEOUT)
+        if _rlfix_got is None:
+            rec['relay2_fallthrough'] = 'session-retry-failed'
+            return None
+        code, raw, gp, obj = _rlfix_got
+        rec['relay2_code'] = code
+        rec['relay2_resp_len'] = len(raw)
+        rec['relay2_session_injected'] = True
+        if gp is None or isinstance(gp, (str, int)):
+            rec['relay2_gateway_protocol'] = gp
+        else:
+            rec['relay2_gateway_protocol'] = repr(gp)
+    rec['relay2_protocol'] = req.get('Protocol') if req.get('Protocol') is not None else num
+    rec['relay2_protocol_num'] = num
+    if isinstance(obj.get('Protocol'), int):
+        rec['relay2_shittim_protocol'] = obj.get('Protocol')
+    rec['relay2_shittim_keys'] = len(obj)
+    out = None
+    # 注意：bridge 的 _cn_envelope(proto_name, ...) 会自己算 base32(md5(proto_name))，
+    # 客户端请求里带的正是 base32(md5(协议名))。所以这里必须传**协议名**，不能传客户端
+    # 的 token —— 传 token 会变成 b32md5(b32md5(name))，外层 protocol 就和客户端对不上了。
+    proto_name = name if (isinstance(name, str) and name and name != 'Unknown') else proto_str
+    rec['relay2_envelope_name'] = proto_name
+    if callable(envelope):
+        out = envelope(proto_name, obj, rec)
+    if out is None:
+        rec['relay2_fallthrough'] = 'envelope'
+        return None
+    rec['relay2_used'] = True
+    rec['relay2_fallthrough'] = ''
+    return out
+# <<< BAPATCH-RELAY2-PAYLOAD v1 END <<<
+if __name__ == '__main__':
+    n = load_names()
+    print('protocol name table =', n, 'entries')
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(('127.0.0.1', 9097), Handler) as s:
+        print('bridge v6 listening on 127.0.0.1:9097 mode=', mode(), 'exp=', exp_flag())
+        s.serve_forever()

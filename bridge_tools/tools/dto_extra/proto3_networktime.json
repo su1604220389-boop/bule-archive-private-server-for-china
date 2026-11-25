@@ -1,0 +1,84 @@
+{
+ "_meta": {
+  "schema": "dto_extra/1",
+  "protocol": 3,
+  "protocol_name": "NetworkTime_Sync",
+  "segment": "NetworkTime",
+  "dto": {
+   "name": "NetworkTimeSyncResponse",
+   "namespace": "Schale.MX.NetworkProtocol",
+   "base": "ResponsePacket",
+   "base_chain": ["BasePacket", "ResponsePacket"],
+   "request_dto": {"name": "NetworkTimeSyncRequest", "own_field_count": 0,
+                   "note": "请求侧**没有任何自有字段** ⇒ EchoSendTick 不可能来自请求 DTO"}
+  },
+  "generator": "work/ba/server/deploy/gen3.py",
+  "purpose": "protocol 3 在 dto_schema_full_v2.json（710 类型）里没有 Response DTO，protocol_router 只能回 Error。本文件把 DTO 从抓包 + 反编译源反推出来。",
+  "evidence": {
+   "capture": "report/_tmp/official_decoded_201/04_3_api_networktime_sync.response.json（resp_bytes=620 / 紧凑包体 314 B / 7 顶层键）",
+   "spec": "work/ba/proto/official_spec.json protocols['3']（observations=1，confidence=low）",
+   "csharp": "report/_tmp/L0_transport/src/Schale__MX__NetworkProtocol__NetworkProtocol.cs：class NetworkTimeSyncResponse 声明 public long ReceiveTick / public long EchoSendTick（顺序一致）",
+   "protocol_enum": "report/_tmp/L0_transport/src/Schale__MX__NetworkProtocol__ProtocolData.cs：enum Protocol { NetworkTime_Sync = 3, NetworkTime_SyncReply = 4 }",
+   "protocol_map": "work/ba/proto/protocol_map.json NetworkTime_Sync = {id: null, req: NetworkTimeSyncRequest, resp: null, dto_match: exact/none}"
+  },
+  "confidence": {
+   "wire_field_set": "high（抓包 1/1 + C# 声明一致；两者键集合完全相同）",
+   "wire_field_order": "high（抓包顺序 = C# 声明顺序 = 5 信封 + 2 自有）",
+   "own_field_types": "high（C# 声明 long，抓包值 639304002554622693 > 2^31，只能是 int64）",
+   "field_numbers": "none（抓包与 dto_schema 均不给字段号）",
+   "semantics": "mid（ReceiveTick==EchoSendTick 逐值相同；请求 DTO 无字段 ⇒ 判定为服务端把「收到请求的 tick」同时写进两个字段）"
+  }
+ },
+ "wire_field_count": 7,
+ "own_field_count": 2,
+ "wire_fields": [
+  {"order": 1, "number": "unknown", "name": "Protocol", "type": "int32",
+   "kind": "scalar", "json_type": "int", "nullable": false, "required": true,
+   "value": 3, "from": "BasePacket", "evidence": ["capture", "spec", "protocol_enum"]},
+  {"order": 2, "number": "unknown", "name": "SessionKey", "type": "SessionKey",
+   "kind": "object", "json_type": "object", "nullable": false, "required": true,
+   "from": "BasePacket", "evidence": ["capture", "spec"],
+   "children": [
+    {"name": "AccountServerId", "type": "int64", "json_type": "int", "required": true},
+    {"name": "MxToken", "<REDACTED_TOKEN>": "string", "json_type": "str", "required": true, "note": "64 字符 base64"}
+   ]},
+  {"order": 3, "number": "unknown", "name": "ServerTimeTicks", "type": "int64",
+   "kind": "scalar", "json_type": "int", "nullable": false, "required": true,
+   "unit": "dotnet 100ns ticks since 0001-01-01", "from": "ResponsePacket",
+   "evidence": ["capture", "spec"]},
+  {"order": 4, "number": "unknown", "name": "ServerNotification",
+   "type": "ServerNotificationFlag(int32)", "kind": "enum", "json_type": "int",
+   "nullable": false, "required": true, "value": 0, "from": "ResponsePacket",
+   "evidence": ["capture", "spec"]},
+  {"order": 5, "number": "unknown", "name": "RequestId", "type": "string",
+   "kind": "scalar", "json_type": "str", "nullable": false, "required": true,
+   "note": "uuid4；与 HTTP 响应头 requestid 同值", "from": "BasePacket",
+   "evidence": ["capture", "spec"]},
+  {"order": 6, "number": "unknown", "name": "ReceiveTick", "type": "int64",
+   "kind": "scalar", "json_type": "int", "nullable": false, "required": true,
+   "from": "NetworkTimeSyncResponse(own)",
+   "value_capture": 639304002554622693,
+   "unit": "dotnet 100ns ticks（= dt_from_ticks → 2026-11-16T04:30:55.462 +08）",
+   "evidence": ["capture", "spec", "csharp"]},
+  {"order": 7, "number": "unknown", "name": "EchoSendTick", "type": "int64",
+   "kind": "scalar", "json_type": "int", "nullable": false, "required": true,
+   "from": "NetworkTimeSyncResponse(own)",
+   "value_capture": 639304002554622693,
+   "note": "抓包中与 ReceiveTick **逐值相同**，且请求 DTO 无任何字段 ⇒ 服务端没有可回显的客户端 tick，两个字段都填「收到请求时的 tick」即可完全复现官方行为",
+   "evidence": ["capture", "spec", "csharp"]}
+ ],
+ "own_fields": [
+  {"name": "ReceiveTick", "type": "int64 (long)", "json_type": "int", "required": true},
+  {"name": "EchoSendTick", "type": "int64 (long)", "json_type": "int", "required": true}
+ ],
+ "unknowns": [
+  "字段号（1..7）不可验证：抓包只给键名，dto_schema 不给 number，C# 源只有声明顺序",
+  "EchoSendTick 的真实语义在客户端侧无从验证（JP/CN 的 Shittim 源都只声明 long，不写取值规则）；本文件只依据「抓包相等 + 请求无字段」判定为服务端接收时刻",
+  "本协议官方只有 1 条样本（spec observations=1，confidence=low），键集合稳定性没有第二条证据"
+ ],
+ "merge": {
+  "protocol_map": "NetworkTime_Sync 需要补 id=3（现为 null）与 resp='NetworkTimeSyncResponse'（现为 null）",
+  "dto_schema_full_v2": "新增 NetworkTimeSyncResponse：base=ResponsePacket，wireFields 见本文件；namespace=Schale.MX.NetworkProtocol",
+  "generator": "work/ba/server/deploy/gen3.py 直接产出可回包的 JSON（无需 DTO 也能先跑）"
+ }
+}

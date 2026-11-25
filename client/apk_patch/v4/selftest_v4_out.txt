@@ -1,0 +1,137 @@
+# SELF-TEST v4_login.apk
+
+run at      : 2026-11-18T20:14:33+08:00
+v1 (原包重签) : /mnt/c/Users/su/Desktop/大肥鱼项目/BAServer/work/ba/apk_patch/backup/BA_noroot_prod_20261118_v1.apk
+v2 (v4 基线)  : /mnt/c/Users/su/Desktop/大肥鱼项目/BAServer/work/ba/apk_patch/out/v2_layoutonly.apk
+v4 (本次)     : /mnt/c/Users/su/Desktop/大肥鱼项目/BAServer/work/ba/apk_patch/out/v4_login.apk
+
+## 0) 包体 SHA-256 / 字节数
+
+| 包 | 字节 | sha256 |
+|---|---|---|
+| BA_noroot_prod_20261118_v1.apk | 2,127,971,177 | `5f8b79dd930b8d1420b5b686cbc978142b751eea47c4b090ba308482a0f2f5c6` ✅ |
+| v2_layoutonly.apk | 2,127,972,169 | `562d528a951eaeb15ae3165ece4a7ceb91849bb21ef54c895c6f217f9a676d64` ✅ |
+| v4_login.apk | 2,127,972,093 | `6490fcfc772f4dc6dd1773e7999a491775a646b08675591204b18212ee94eddb` |
+
+## 1) resources.arsc —— 必须与原始包逐字节相同
+
+| entry | v1 | v2 | v4 |
+|---|---|---|---|
+| `resources.arsc` | `cd8943ae979fd434…` (1156308 B) | `cd8943ae979fd434…` (1156308 B) | `cd8943ae979fd434…` (1156308 B) |
+| `classes.dex` | `56b3a73b3039db99…` (9327708 B) | `56b3a73b3039db99…` (9327708 B) | `56b3a73b3039db99…` (9327708 B) |
+| `classes2.dex` | `dca6f88a614fd766…` (10158904 B) | `dca6f88a614fd766…` (10158904 B) | `dca6f88a614fd766…` (10158904 B) |
+| `AndroidManifest.xml` | `9a07ec83802b9b6f…` (50552 B) | `9a07ec83802b9b6f…` (50552 B) | `9a07ec83802b9b6f…` (50552 B) |
+| `res/Q9.xml` | `cc12543bbb5b977e…` (7292 B) | `8907d9b258c918c0…` (8284 B) | `f614865a97955515…` (8208 B) |
+
+* v4 `resources.arsc` sha256 = `cd8943ae979fd434a6c1fee67e8129bba1bc4a452e1937d7d7e6052079eecb86`
+* 规范常量                    = `cd8943ae979fd434a6c1fee67e8129bba1bc4a452e1937d7d7e6052079eecb86`
+* => **一致 ✅**
+
+## 2) classes.dex / classes2.dex / AndroidManifest.xml —— 逐字节不变
+
+* `classes.dex`  sha256 = `56b3a73b3039db99ade67faf42e471c8de4dcd7127ce9bef49d9f4d473c27651`  (9327708 B)
+  * v1 == v2 == v4 : **True**
+* `classes2.dex`  sha256 = `dca6f88a614fd7666842eed9d11d3f6bf9c842e381b80a63a330cbb78c93a7b4`  (10158904 B)
+  * v1 == v2 == v4 : **True**
+* `AndroidManifest.xml`  sha256 = `9a07ec83802b9b6fc08582b9429d9649775fe8627c35be419a3b851f1ffaca11`  (50552 B)
+  * v1 == v2 == v4 : **True**
+
+* （对照）原始 `classes.dex` 前 16 位应为 `56b3a73b3039db99`：一致 ✅
+
+## 3) `aapt dump badging` —— 与 v2 基线 diff
+
+* v2 行数 = 176, v4 行数 = 176
+* **diff 行数 = 0**
+
+* v4 badging 前 6 行：
+
+```
+package: name='com.RoamingStar.BlueArchive' versionCode='73' versionName='3.0.2' platformBuildVersionName='13' platformBuildVersionCode='33' compileSdkVersion='33' compileSdkVersionCodename='13'
+install-location:'auto'
+sdkVersion:'24'
+targetSdkVersion:'33'
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.VIBRATE'
+```
+
+## 4) zip 条目 diff（v4 vs v2，按 name + size + crc32 + method）
+
+* 条目数：v2 = 41307, v4 = 41307
+* **变化条目 (4)**：
+
+| entry | v2 size | v4 size | v2 crc32 | v4 crc32 | v2 method | v4 method |
+|---|---|---|---|---|---|---|
+| `META-INF/CERT.RSA` | 1208 | 1208 | 0e26fe6b | 1695b469 | 0 | 0 |
+| `META-INF/CERT.SF` | 156 | 156 | d156a581 | 0f1f824b | 0 | 0 |
+| `META-INF/MANIFEST.MF` | 5151246 | 5151246 | c9adf0b7 | 66fc9768 | 0 | 0 |
+| `res/Q9.xml` | 8284 | 8208 | e90efac7 | 05500e69 | 0 | 0 |
+
+* 只在 v2：无
+* 只在 v4：无
+
+* 允许集合 = {`res/Q9.xml`} ∪ `META-INF/*`
+* 超出允许集合的条目：**无**
+
+* META-INF 变化条目明细：
+
+  * `META-INF/CERT.RSA`  1208 B -> 1208 B
+  * `META-INF/CERT.SF`  156 B -> 156 B
+  * `META-INF/MANIFEST.MF`  5151246 B -> 5151246 B
+
+* `res/Q9.xml` in package : 8208 B  sha256=`f614865a97955515e41e2248af0b6004f7eefdea3d2fbd0897285d226cb189b3`
+* fed AXML file           : 8208 B  sha256=`f614865a97955515e41e2248af0b6004f7eefdea3d2fbd0897285d226cb189b3`
+* 一致：**True**
+
+## 5) `apksigner verify --print-certs`
+
+### BA_noroot_prod_20261118_v1.apk  -> exit 0
+
+```
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v4 scheme (APK Signature Scheme v4): false
+Number of signers: 1
+Signer #1 certificate DN: CN=ba, OU=Private, O=BA, C=CN
+Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc
+Signer #1 certificate SHA-1 digest: b584e21cd77a635cc42e8ac5bed4b992e3610037
+Signer #1 certificate MD5 digest: 1ce17d9b7b789a1d7c69297f3fa74ed5
+```
+
+### v2_layoutonly.apk  -> exit 0
+
+```
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v4 scheme (APK Signature Scheme v4): false
+Number of signers: 1
+Signer #1 certificate DN: CN=ba, OU=Private, O=BA, C=CN
+Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc
+Signer #1 certificate SHA-1 digest: b584e21cd77a635cc42e8ac5bed4b992e3610037
+Signer #1 certificate MD5 digest: 1ce17d9b7b789a1d7c69297f3fa74ed5
+```
+
+### v4_login.apk  -> exit 0
+
+```
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v4 scheme (APK Signature Scheme v4): false
+Number of signers: 1
+Signer #1 certificate DN: CN=ba, OU=Private, O=BA, C=CN
+Signer #1 certificate SHA-256 digest: 94fa997be0debb69f1c62d766664fa8a879839dc9f710f6eebd0c413dee99ebc
+Signer #1 certificate SHA-1 digest: b584e21cd77a635cc42e8ac5bed4b992e3610037
+Signer #1 certificate MD5 digest: 1ce17d9b7b789a1d7c69297f3fa74ed5
+```
+
+* v4 签名证书 == 原签名证书 `94FA997BE0DEBB69F1C62D766664FA8A879839DC9F710F6EEBD0C413DEE99EBC` : **yes**
+
+## 结论
+
+**ALL CHECKS PASSED ✅**
+

@@ -1,0 +1,22 @@
+{
+  "meta": {
+    "id": 88,
+    "bj": "04:30:55.625",
+    "status": 200,
+    "resp_bytes": 620,
+    "protocol": 3
+  },
+  "plain": "{\"protocol\":\"NetworkTime_Sync\",\"packet\":\"{\\\"Protocol\\\":3,\\\"SessionKey\\\":{\\\"AccountServerId\\\":10015354380,\\\"MxToken\\\":\\\"Vji5A/Cy6X2enQZKeYgrjxAC8MoRDOCT2Tb1SW13PcZTq2cnyCPPdd81pGbzYBKA\\\"},\\\"ServerTimeTicks\\\":639304002554622705,\\\"ServerNotification\\\":0,\\\"RequestId\\\":\\\"d1d5579c-9c2b-44e6-a496-c66d4ccca10c\\\",\\\"ReceiveTick\\\":639304002554622693,\\\"EchoSendTick\\\":639304002554622693}\",\"requestid\":\"d1d5579c-9c2b-44e6-a496-c66d4ccca10c\"}",
+  "inner": {
+    "Protocol": 3,
+    "SessionKey": {
+      "AccountServerId": 10015354380,
+      "MxToken": "<REDACTED_TOKEN>"
+    },
+    "ServerTimeTicks": 639304002554622705,
+    "ServerNotification": 0,
+    "RequestId": "d1d5579c-9c2b-44e6-a496-c66d4ccca10c",
+    "ReceiveTick": 639304002554622693,
+    "EchoSendTick": 639304002554622693
+  }
+}

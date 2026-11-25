@@ -1,0 +1,61 @@
+### 1) which classes reference R.layout.fragment_default_mobile_code_login
+$ grep -rn fragment_default_mobile_code_login smali smali_classes2
+smali/com/airi/official/core/ui/fragment/DefaultMobileLoginFragment.smali:253:    sget v0, Lcom/airi/official/core/R$layout;->fragment_default_mobile_code_login:I
+smali/com/airi/official/core/R$layout.smali:55:.field public static final fragment_default_mobile_code_login:I = 0x7f0b0044
+smali/com/RoamingStar/BlueArchive/R$layout.smali:153:.field public static final fragment_default_mobile_code_login:I = 0x7f0b0044
+smali_classes2/com/unity3d/player/R$layout.smali:153:.field public static final fragment_default_mobile_code_login:I = 0x7f0b0044
+
+### 2) the consumer class itself
+$ grep -n '^\.class\|^\.super' smali/com/airi/official/core/ui/fragment/DefaultMobileLoginFragment.smali
+1:.class public Lcom/airi/official/core/ui/fragment/DefaultMobileLoginFragment;
+2:.super Lcom/airi/official/core/base/AbsFragment;
+$ wc -l smali/com/airi/official/core/ui/fragment/DefaultMobileLoginFragment.smali
+1593 smali/com/airi/official/core/ui/fragment/DefaultMobileLoginFragment.smali
+
+### 3) getChildAt / getChildCount in the consumer  (0 hits = no index dependency)
+$ grep -c getChildAt smali/com/airi/official/core/ui/fragment/DefaultMobileLoginFragment.smali
+0
+$ grep -c getChildCount smali/com/airi/official/core/ui/fragment/DefaultMobileLoginFragment.smali
+0
+$ grep -n 'getChildAt\|getChildCount' smali/com/airi/official/core/ui/fragment/DefaultMobileLoginFragment.smali   # empty output = 0 hits
+
+### 4) every view id the consumer touches (all id-based, no indices)
+$ grep -o 'R$id;->[a-z_0-9]*' smali/com/airi/official/core/ui/fragment/DefaultMobileLoginFragment.smali | sort -u
+R$id;->agreement_layout
+R$id;->et_phone
+R$id;->et_phone_code
+R$id;->get_phone_code
+R$id;->iv_back
+R$id;->iv_close
+R$id;->iv_privacy_agreement_select
+R$id;->login
+R$id;->login_helper
+R$id;->one_login
+R$id;->taptap_login
+R$id;->third_party_login
+R$id;->tv_bind_phone_desc
+R$id;->tv_privacy_agreement
+
+### 5) who instantiates the fragment (no subclass exists)
+$ grep -rn "new-instance.*DefaultMobileLoginFragment;" smali smali_classes2
+smali/com/airi/official/core/ui/fragment/FragmentCommonUtils.smali:94:    new-instance v0, Lcom/airi/official/core/ui/fragment/DefaultMobileLoginFragment;
+$ grep -rn "extends.*DefaultMobileLoginFragment" smali smali_classes2   # empty = no subclass
+
+### 6) every getChildAt caller inside the app packages (none of them touch this layout)
+$ grep -rn getChildAt smali/com/airi smali/com/RoamingStar smali_classes2/com | grep -v "okhttp\|unity3d\|androidx"
+smali/com/airi/common/utils/WebviewKeyboardUtils.smali:33:    invoke-virtual {p1, v0}, Landroid/widget/FrameLayout;->getChildAt(I)Landroid/view/View;
+smali/com/airi/common/widget/ReboundScrollView.smali:458:    invoke-virtual {p0, v0}, Lcom/airi/common/widget/ReboundScrollView;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/mobile/auth/gatewayauth/PrivacyDialogActivity.smali:805:    invoke-virtual {v0, v3}, Landroid/view/ViewGroup;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/mobile/auth/gatewayauth/LoginAuthActivity.smali:1366:    invoke-virtual {p1, v0}, Landroid/view/ViewGroup;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/mobile/auth/gatewayauth/utils/m.smali:19:    invoke-virtual {p1, v0}, Landroid/view/ViewGroup;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/mobile/auth/gatewayauth/utils/m.smali:80:    invoke-virtual {p0, v1}, Landroid/view/ViewGroup;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/mobile/auth/gatewayauth/utils/m.smali:439:    invoke-virtual {v2, v1}, Landroid/view/ViewGroup;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/mobile/auth/gatewayauth/utils/m.smali:671:    invoke-virtual {v2, v3}, Landroid/view/ViewGroup;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/taptap/sdk/flowlayout/TagFlowLayout.smali:385:    invoke-virtual {p0, v1}, Lcom/taptap/sdk/flowlayout/TagFlowLayout;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/taptap/sdk/flowlayout/TagFlowLayout.smali:582:    invoke-virtual {p0, v1}, Lcom/taptap/sdk/flowlayout/TagFlowLayout;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/taptap/sdk/flowlayout/TagFlowLayout.smali:684:    invoke-virtual {p0, v3}, Lcom/taptap/sdk/flowlayout/TagFlowLayout;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/taptap/sdk/flowlayout/FlowLayout.smali:228:    invoke-virtual {p0, p4}, Lcom/taptap/sdk/flowlayout/FlowLayout;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/taptap/sdk/flowlayout/FlowLayout.smali:646:    invoke-virtual {v0, v6}, Lcom/taptap/sdk/flowlayout/FlowLayout;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/taptap/sdk/flowlayout/TagView.smali:54:    invoke-virtual {p0, v0}, Lcom/taptap/sdk/flowlayout/TagView;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/tencent/open/TDialog$1.smali:68:    invoke-virtual {v0, v1}, Landroid/view/ViewGroup;->getChildAt(I)Landroid/view/View;
+smali_classes2/com/tencent/connect/avatar/ImageActivity.smali:1117:    invoke-virtual {v0, v1}, Landroid/widget/LinearLayout;->getChildAt(I)Landroid/view/View;
